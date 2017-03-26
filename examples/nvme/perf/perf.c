@@ -147,11 +147,12 @@ static int g_is_random;
 static int g_queue_depth;
 static int g_time_in_sec;
 
-#define DDR_SIZE (1024UL * 1024UL * 1024UL * 12UL)
+#define DDR_SIZE (1024UL * 1024UL * 1024UL * 4UL)
 struct fpga_addr {
 	uint64_t current_addr;
 	uint64_t start_addr_port[2];
 	unsigned current_port;
+	uint64_t start_offset;
 };
 
 static uint32_t g_max_completions;
@@ -410,8 +411,8 @@ static void task_ctor(struct rte_mempool *mp, void *arg, void *__task, unsigned 
 
 
 	g_fpga_addrs[g_current_ddr].current_addr = g_fpga_addrs[g_current_ddr].current_addr + 4096;
-	if (g_fpga_addrs[g_current_ddr].current_addr + 4096 > DDR_SIZE)
-		g_fpga_addrs[g_current_ddr].current_addr = 0;
+	if (g_fpga_addrs[g_current_ddr].current_addr > g_fpga_addrs[g_current_ddr].start_offset + DDR_SIZE)
+		g_fpga_addrs[g_current_ddr].current_addr = g_fpga_addrs[g_current_ddr].start_offset;
 
 
 	g_current_ddr = (g_current_ddr + 1) % 3;
@@ -865,16 +866,19 @@ parse_args(int argc, char **argv)
 			break;
 		case 'a':
 			g_fpga_addrs[0].start_addr_port[0] = atoll(optarg);
-			g_fpga_addrs[0].current_addr = atoi(optarg);
+			g_fpga_addrs[0].current_addr = 0;
 			g_fpga_addrs[0].current_port = 0;
+			g_fpga_addrs[0].start_offset = 0;
 
 			g_fpga_addrs[1].start_addr_port[0] = atoll(optarg);
-			g_fpga_addrs[1].current_addr = atoll(optarg);
+			g_fpga_addrs[1].current_addr = DDR_SIZE;
 			g_fpga_addrs[1].current_port = 0;
+			g_fpga_addrs[0].start_offset = DDR_SIZE;
 
 			g_fpga_addrs[2].start_addr_port[0] = atoll(optarg);
-			g_fpga_addrs[2].current_addr = atoll(optarg);
+			g_fpga_addrs[2].current_addr = DDR_SIZE*2;
 			g_fpga_addrs[2].current_port = 0;
+			g_fpga_addrs[2].start_offset = DDR_SIZE*2;
 			break;
 		case 'b':
 			g_fpga_addrs[0].start_addr_port[1] = atoll(optarg);
