@@ -1,0 +1,18 @@
+include $(WORKSPACE_TOP)/common/Makefile.env
+
+RTE_SDK:=$(shell component-tool localpath --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk)
+SPDK_INSTALL_DIR ?= $(shell component-tool localpath --repo=spdk --type=$(BUILD_TYPE) spdk-sdk)
+
+checkout_deps:
+	 component-tool -v  checkout --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk
+
+build: checkout_deps 
+	$(Q)$(MAKE) CONFIG_DPDK_DIR=$(RTE_SDK)
+
+install: |checkout_deps
+	$(Q)$(MAKE) CONFIG_DPDK_DIR=$(RTE_SDK) prefix=$(SPDK_INSTALL_DIR) install
+
+checkin: 
+	$(Q)component-tool checkin --repo=spdk --type=$(BUILD_TYPE) spdk-sdk
+
+.PHONY: install checkin 
