@@ -38,7 +38,6 @@ include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
 DIRS-y += lib
 DIRS-$(CONFIG_SHARED) += shared_lib
-DIRS-y += examples app include
 DIRS-$(CONFIG_TESTS) += test
 DIRS-$(CONFIG_IPSEC_MB) += ipsecbuild
 DIRS-$(CONFIG_ISAL) += isalbuild
