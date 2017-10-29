@@ -6,7 +6,7 @@ SPDK_INSTALL_DIR ?= $(shell component-tool localpath --repo=spdk --type=$(BUILD_
 all: build
 
 checkout_deps:
-	 component-tool -v  checkout --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk
+	 $(Q)lb-build -d
 
 build: checkout_deps 
 	./configure --with-dpdk=$(RTE_SDK)
