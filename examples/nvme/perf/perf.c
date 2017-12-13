@@ -532,9 +532,9 @@ submit_single_io(struct perf_task *task)
 
 	if (rc != 0) {
 		fprintf(stderr, "starting I/O failed\n");
+	} else {
+		ns_ctx->current_queue_depth++;
 	}
-
-	ns_ctx->current_queue_depth++;
 }
 
 static void
