@@ -96,7 +96,6 @@ rpc_py="python $SPDK_BUILD_DIR/scripts/rpc.py "
 
 for vm_conf in ${vms[@]}; do
 	IFS=',' read -ra conf <<< "$vm_conf"
-	setup_cmd="$COMMON_DIR/vm_setup.sh $x --work-dir=$TEST_DIR --test-type=$test_type"
 	if [[ x"${conf[0]}" == x"" ]] || ! assert_number ${conf[0]}; then
 		fail "invalid VM configuration syntax $vm_conf"
 	fi
@@ -108,10 +107,7 @@ for vm_conf in ${vms[@]}; do
 		fi
 	done
 
-	setup_cmd+=" -f ${conf[0]}"
 	used_vms+=" ${conf[0]}"
-	[[ x"${conf[1]}" != x"" ]] && setup_cmd+=" --os=${conf[1]}"
-	[[ x"${conf[2]}" != x"" ]] && setup_cmd+=" --disk=${conf[2]}"
 
 	if [[ $test_type == "spdk_vhost" ]]; then
 		echo "INFO: Trying to remove inexistent controller"
@@ -198,6 +194,11 @@ for vm_conf in ${vms[@]}; do
 		unset IFS;
 		$rpc_py get_vhost_controllers
 	fi
+
+	setup_cmd="vm_setup --force=${conf[0]} --disk-type=$test_type"
+	[[ x"${conf[1]}" != x"" ]] && setup_cmd+=" --os=${conf[1]}"
+	[[ x"${conf[2]}" != x"" ]] && setup_cmd+=" --disks=${conf[2]}"
+
 	$setup_cmd
 done
 
