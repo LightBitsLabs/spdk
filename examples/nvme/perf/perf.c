@@ -181,11 +181,9 @@ struct fpga_addr {
 
 static uint32_t g_max_completions;
 static uint64_t g_ddr_size;
-static int      g_n_ddr;
 static int      g_n_port;
 static uint32_t g_io_limit;
-struct fpga_addr g_fpga_addrs[3];
-static int g_current_ddr;
+struct fpga_addr g_fpga_addr;
 static int g_dpdk_mem;
 static int g_shm_id = -1;
 static uint32_t g_disable_sq_cmb;
@@ -456,15 +454,12 @@ static void task_ctor(struct rte_mempool *mp, void *arg, void *__task, unsigned 
 		exit(1);
 	}
 
-	task->phys_addr = g_fpga_addrs[g_current_ddr].current_addr + g_fpga_addrs[g_current_ddr].start_addr_port[g_fpga_addrs[g_current_ddr].current_port];
-
-	g_fpga_addrs[g_current_ddr].current_port = (g_fpga_addrs[g_current_ddr].current_port + 1) % g_n_port;
-
-	g_fpga_addrs[g_current_ddr].current_addr = g_fpga_addrs[g_current_ddr].current_addr + 4096;
-	if (g_fpga_addrs[g_current_ddr].current_addr > g_fpga_addrs[g_current_ddr].start_offset + g_ddr_size)
-		g_fpga_addrs[g_current_ddr].current_addr = g_fpga_addrs[g_current_ddr].start_offset;
-
-	g_current_ddr = (g_current_ddr + 1) % g_n_ddr;
+	task->phys_addr = g_fpga_addr.current_addr + g_fpga_addr.start_addr_port[g_fpga_addr.current_port];
+	
+        g_fpga_addr.current_port = (g_fpga_addr.current_port + 1) % g_n_port;
+	g_fpga_addr.current_addr = g_fpga_addr.current_addr + 4096;
+        if (g_fpga_addr.current_addr > g_fpga_addr.start_offset + g_ddr_size)
+		g_fpga_addr.current_addr = g_fpga_addr.start_offset;
 
 	memset(task->buf, id % 8 + 1, g_io_size_bytes);
 }
@@ -757,7 +752,6 @@ static void usage(char *program_name)
 	printf("\t[-m max completions per poll]\n");
 	printf("\t\t(default: 0 - unlimited)\n");
 	printf("\t[-i shared memory group ID]\n");
-	printf("\t[-N number of ddrs (default 3)]\n");
 	printf("\t[-P number of pci ports (default 2)]\n");
 	printf("\t[-S ddr_size (default %lu)]\n", DDR_SIZE);
 	printf("\t[-I IOPS limitation]\n");
@@ -1032,12 +1026,11 @@ parse_args(int argc, char **argv)
 	g_rw_percentage = -1;
 	g_core_mask = NULL;
 	g_max_completions = 0;
-	g_n_ddr = 3;
 	g_n_port = 2;
 	g_ddr_size = DDR_SIZE;
 	g_io_limit = 0;
 
-	while ((op = getopt(argc, argv, "c:d:i:lm:q:r:s:t:w:DLM:a:b:P:S:N:I:")) != -1) {
+	while ((op = getopt(argc, argv, "c:d:i:lm:q:r:s:t:w:DLM:a:b:P:S:I:")) != -1) {
 		switch (op) {
 		case 'c':
 			g_core_mask = optarg;
@@ -1069,9 +1062,6 @@ parse_args(int argc, char **argv)
 		case 't':
 			g_time_in_sec = atoi(optarg);
 			break;
-		case 'N':
-			g_n_ddr = atoi(optarg);
-			break;
 		case 'P':
 			g_n_port = atoi(optarg);
 			break;
@@ -1092,25 +1082,14 @@ parse_args(int argc, char **argv)
 			g_disable_sq_cmb = 1;
 			break;
 		case 'a':
-			g_fpga_addrs[0].start_addr_port[0] = atoll(optarg);
-			g_fpga_addrs[0].current_addr = 0;
-			g_fpga_addrs[0].current_port = 0;
-			g_fpga_addrs[0].start_offset = 0;
+			g_fpga_addr.start_addr_port[0] = atoll(optarg);
+			g_fpga_addr.current_addr = 0;
+			g_fpga_addr.current_port = 0;
+			g_fpga_addr.start_offset = 0;
 
-			g_fpga_addrs[1].start_addr_port[0] = atoll(optarg);
-			g_fpga_addrs[1].current_addr = DDR_SIZE;
-			g_fpga_addrs[1].current_port = 0;
-			g_fpga_addrs[1].start_offset = DDR_SIZE;
-
-			g_fpga_addrs[2].start_addr_port[0] = atoll(optarg);
-			g_fpga_addrs[2].current_addr = DDR_SIZE*2;
-			g_fpga_addrs[2].current_port = 0;
-			g_fpga_addrs[2].start_offset = DDR_SIZE*2;
 			break;
 		case 'b':
-			g_fpga_addrs[0].start_addr_port[1] = atoll(optarg);
-			g_fpga_addrs[1].start_addr_port[1] = atoll(optarg);
-			g_fpga_addrs[2].start_addr_port[1] = atoll(optarg);
+			g_fpga_addr.start_addr_port[1] = atoll(optarg);
 			break;
 		case 'I':
 			g_io_limit = atoi(optarg);
@@ -1121,7 +1100,6 @@ parse_args(int argc, char **argv)
 		}
 	}
 
-	g_current_ddr = 0;
 
 	if (!g_queue_depth) {
 		usage(argv[0]);
@@ -1136,8 +1114,8 @@ parse_args(int argc, char **argv)
 		return 1;
 	}
 	if (!g_time_in_sec) {
-		usage(argv[0]);
-		return 1;
+            usage(argv[0]);
+            return 1;
 	}
 
 	if (strcmp(workload_type, "read") &&
