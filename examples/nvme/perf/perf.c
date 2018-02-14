@@ -170,6 +170,7 @@ static int g_rw_percentage;
 static int g_is_random;
 static int g_queue_depth;
 static int g_time_in_sec;
+static int g_n_iter;
 
 #define DDR_SIZE (1024UL * 1024UL * 1024UL * 4UL)
 struct fpga_addr {
@@ -518,7 +519,7 @@ submit_single_io(struct ns_worker_ctx *ns_ctx)
 		} else
 #endif
 		{
-			rc = spdk_nvme_ns_cmd_read(entry->u.nvme.ns, ns_ctx->u.nvme.qpair, (void*)task->phys_addr,
+                    rc = spdk_nvme_ns_cmd_read(entry->u.nvme.ns, ns_ctx->u.nvme.qpair, (void*)task->phys_addr,
 						   offset_in_ios * entry->io_size_blocks,
 						   entry->io_size_blocks, io_complete, task, 0);
 		}
@@ -665,7 +666,7 @@ work_fn(void *arg)
 	uint64_t tsc_end;
 	struct worker_thread *worker = (struct worker_thread *)arg;
 	struct ns_worker_ctx *ns_ctx = NULL;
-
+        int i = 0;
 	printf("Starting thread on core %u\n", worker->lcore);
 
 	/* Allocate a queue pair for each namespace. */
@@ -684,10 +685,11 @@ work_fn(void *arg)
 	ns_ctx = worker->ns_ctx;
 	while (ns_ctx != NULL) {
 		submit_io(ns_ctx, g_queue_depth);
-		ns_ctx = ns_ctx->next;
+		i+=g_queue_depth; 
+                ns_ctx = ns_ctx->next;
 	}
 
-	while (1) {
+	while (!g_n_iter || (i < g_n_iter)) {
 		/*
 		 * Check for completed I/O for each controller. A new
 		 * I/O will be submitted in the io_complete callback
@@ -699,7 +701,8 @@ work_fn(void *arg)
 
 			if (!ns_ctx->is_draining && (ns_ctx->current_queue_depth == 0)) {
 				submit_single_io(ns_ctx);
-			}
+			        i++;
+                        }
 
 			ns_ctx = ns_ctx->next;
 		}
@@ -735,6 +738,7 @@ static void usage(char *program_name)
 	printf("\t\t-L for latency summary, -LL for detailed histogram\n");
 	printf("\t[-l enable latency tracking via ssd (if supported), default: disabled]\n");
 	printf("\t[-t time in seconds]\n");
+	printf("\t[-n number of iteration (per core)\n");
 	printf("\t[-c core mask for I/O submission/completion.]\n");
 	printf("\t\t(default: 1)]\n");
 	printf("\t[-D disable submission queue in controller memory buffer, default: enabled]\n");
@@ -1022,15 +1026,16 @@ parse_args(int argc, char **argv)
 	g_queue_depth = 0;
 	g_io_size_bytes = 0;
 	workload_type = NULL;
-	g_time_in_sec = 0;
-	g_rw_percentage = -1;
+	g_time_in_sec = 5;
+        g_rw_percentage = -1;
+	g_n_iter = 0;
 	g_core_mask = NULL;
 	g_max_completions = 0;
 	g_n_port = 2;
 	g_ddr_size = DDR_SIZE;
 	g_io_limit = 0;
 
-	while ((op = getopt(argc, argv, "c:d:i:lm:q:r:s:t:w:DLM:a:b:P:S:I:")) != -1) {
+	while ((op = getopt(argc, argv, "c:d:i:lm:q:r:s:t:w:DLM:a:b:P:S:n:I:")) != -1) {
 		switch (op) {
 		case 'c':
 			g_core_mask = optarg;
@@ -1061,6 +1066,9 @@ parse_args(int argc, char **argv)
 			break;
 		case 't':
 			g_time_in_sec = atoi(optarg);
+			break;
+		case 'n':
+			g_n_iter = atoi(optarg);
 			break;
 		case 'P':
 			g_n_port = atoi(optarg);
@@ -1113,7 +1121,8 @@ parse_args(int argc, char **argv)
 		usage(argv[0]);
 		return 1;
 	}
-	if (!g_time_in_sec) {
+	if (!g_time_in_sec && !g_n_iter) {
+            printf("no time or iteration limit\n");
             usage(argv[0]);
             return 1;
 	}
@@ -1484,7 +1493,7 @@ int main(int argc, char **argv)
 			assert(master_worker == NULL);
 			master_worker = worker;
 		}
-		worker = worker->next;
+                worker = worker->next;
 	}
 
 	assert(master_worker != NULL);
