@@ -3,6 +3,7 @@
 set -e
 
 rootdir=$(readlink -f $(dirname $0))/..
+pci_ids_dir=$rootdir/include/spdk
 
 function linux_iter_pci {
 	# Argument is the class code
@@ -31,7 +32,7 @@ function linux_bind_driver() {
 	echo "$bdf ($ven_dev_id): $old_driver_name -> $driver_name"
 
 	echo "$ven_dev_id" > "/sys/bus/pci/drivers/$driver_name/new_id" 2> /dev/null || true
-	echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/bind" 2> /dev/null || true
+        echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/bind" 2> /dev/null || true
 
 	iommu_group=$(basename $(readlink -f /sys/bus/pci/devices/$bdf/iommu_group))
 	if [ -e "/dev/vfio/$iommu_group" ]; then
@@ -39,6 +40,9 @@ function linux_bind_driver() {
 			chown "$username" "/dev/vfio/$iommu_group"
 		fi
 	fi
+	if [ `cat /sys/bus/pci/devices/$bdf/numa_node` -ne $numa_node ]; then
+            echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/unbind" 2> /dev/null || true
+        fi
 }
 
 function linux_hugetlbfs_mount() {
@@ -62,7 +66,7 @@ function configure_linux {
 	# IOAT
 	TMP=`mktemp`
 	#collect all the device_id info of ioat devices.
-	grep "PCI_DEVICE_ID_INTEL_IOAT" $rootdir/include/spdk/pci_ids.h \
+	grep "PCI_DEVICE_ID_INTEL_IOAT" $pci_ids_dir/pci_ids.h \
 	| awk -F"x" '{print $2}' > $TMP
 
 	for dev_id in `cat $TMP`; do
@@ -123,7 +127,7 @@ function reset_linux {
 	# IOAT
 	TMP=`mktemp`
 	#collect all the device_id info of ioat devices.
-	grep "PCI_DEVICE_ID_INTEL_IOAT" $rootdir/include/spdk/pci_ids.h \
+	grep "PCI_DEVICE_ID_INTEL_IOAT" $pci_ids_dir/pci_ids.h \
 	| awk -F"x" '{print $2}' > $TMP
 
 	modprobe ioatdma || true
@@ -159,7 +163,7 @@ function status_linux {
 	echo "I/OAT DMA"
 
 	#collect all the device_id info of ioat devices.
-	TMP=`grep "PCI_DEVICE_ID_INTEL_IOAT" $rootdir/include/spdk/pci_ids.h \
+	TMP=`grep "PCI_DEVICE_ID_INTEL_IOAT" $pci_ids_dir/pci_ids.h \
 	| awk -F"x" '{print $2}'`
 	echo -e "BDF\t\tNuma Node\tDriver Name"
 	for dev_id in $TMP; do
@@ -179,7 +183,7 @@ function configure_freebsd {
 	GREP_STR="class=0x010802"
 
 	# IOAT
-	grep "PCI_DEVICE_ID_INTEL_IOAT" $rootdir/include/spdk/pci_ids.h \
+	grep "PCI_DEVICE_ID_INTEL_IOAT" $pci_ids_dir/pci_ids.h \
 	| awk -F"x" '{print $2}' > $TMP
 	for dev_id in `cat $TMP`; do
 		GREP_STR="${GREP_STR}\|chip=0x${dev_id}8086"
@@ -208,23 +212,62 @@ function reset_freebsd {
 
 : ${NRHUGE:=1024}
 
-username=$1
-mode=$2
+function usage {
+    printf "%-6s%-15s: %s\n" "-h" "--help" "print this message"
+    printf "%-6s%-15s: %s\n" "-u" "--username" "default sudo-user"
+    printf "%-6s%-15s: %s\n" "-m" "--mode" "default config"
+    printf "%-6s%-15s: %s\n" "-n" "--numa_node" "default 0"
+    printf "%-6s%-15s: %s\n" ""   "--lightbox" "default no"
+}
 
-if [ "$username" = "reset" -o "$username" = "config" -o "$username" = "status" ]; then
-	mode="$username"
-	username=""
-fi
+function parser {
+    username=$SUDO_USER
+    mode="config"
+    numa_node=0
+    lightbox=
+    while [ $1 ]; do
+        case $1 in
+            -h | --help)
+                usage
+                exit
+                ;;
+            -u | --username)
+		username=$2
+		if [ ! $2 ]; then usage; exit; fi
+		shift 2
+		;;
+	    -m | --mode)
+		mode=$2
+		if [ ! $2 ]; then usage; exit; fi
+		shift 2
+		;;
+	    -n | --numa_node)
+		numa_node=$2
+		if [ ! $2 ]; then usage; exit; fi
+		shift 2
+		;;
+	    --lightbox)
+		lightbox=1
+		shift 1
+		;;
+            *)
+		echo "unknown input $1"
+		usage
+		exit
+		;;
+	    esac
+	done
+}
+parser $@
 
-if [ "$mode" == "" ]; then
-	mode="config"
+if [ $lightbox ]; then
+    rootdir=.
+    pci_ids_dir=.
+    echo "Running Lightbits setup"
 fi
 
 if [ "$username" = "" ]; then
-	username="$SUDO_USER"
-	if [ "$username" = "" ]; then
-		username=`logname 2>/dev/null` || true
-	fi
+    username=`logname 2>/dev/null` || true
 fi
 
 if [ `uname` = Linux ]; then

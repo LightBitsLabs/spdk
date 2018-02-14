@@ -1,0 +1,28 @@
+Running spdk perf on lightbox
+
+1. compile perf
+    cd $WORKSPACE_TOP/spdk/examples/nvme/perf
+    dockerize make CONFIG_DPDK_DIR=$WORKSPACE_TOP/dpdk/build
+   
+2. scp modules and scripts. You will need:
+    $WORKSPACE_TOP/kernelight/drivers/lightfield/core/lf.ko
+    $WORKSPACE_TOP/spdk/examples/nvme/perf/perf
+    $WORKSPACE_TOP/spdk/scripts/setup.sh
+    $WORKSPACE_TOP/spdk/include/spdk/pci_ids.h
+    # If you're not loading rootfs_product, and want to work with lightfield, you should also upload:
+    $WORKSPACE_TOP/lightfield/utils/lf_debug
+
+3. Setup
+    insmod lf.ko
+    ./setup.sh --lightbox
+    #TBD - completion reloacator config
+
+4. Run the test.
+Examples:
+    1. Simple iops test(70-30):
+        ./perf -q 128 -s 4096 -w rw -d 256 -c f -M 70 -t 5
+    2. Use the fpga buffers :
+        ./perf -q 128 -s 4096 -w rw -d 256 -c f -M 70 -a 61813169324032 -b 61778809585664 -t 5
+        # fpga port address should be given in decimal-base, and can be obtined by using fpga_port_map.sh script
+    3. Single write command test:
+        ./perf -q 1 -s 4096 -w write -d 256 -c 1 -r 'trtype:PCIe traddr:0000:09:00.0' -n 1
