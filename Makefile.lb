@@ -1,5 +1,5 @@
 include $(WORKSPACE_TOP)/common/Makefile.env
-
+LF_DEBUG_DIR:=$(shell component-tool localpath --repo=lightfield --type=$(BUILD_TYPE) lf_debug)
 RTE_SDK:=$(shell component-tool localpath --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk)
 SPDK_INSTALL_DIR ?= $(shell component-tool localpath --repo=spdk --type=$(BUILD_TYPE) spdk-sdk)
 
@@ -12,7 +12,7 @@ checkout_deps:
 
 build: checkout_deps 
 	./configure --with-dpdk=$(RTE_SDK)
-	$(Q)$(MAKE) MACHINE_CFLAGS=$(MACHINE_CFLAGS) CONFIG_DPDK_DIR=$(RTE_SDK)
+	$(Q)$(MAKE) MACHINE_CFLAGS=$(MACHINE_CFLAGS) CONFIG_DPDK_DIR=$(RTE_SDK) LF_DEBUG_DIR=$(LF_DEBUG_DIR) 
 
 clean: checkout_deps 
 	$(Q)$(MAKE) CONFIG_DPDK_DIR=$(RTE_SDK) clean

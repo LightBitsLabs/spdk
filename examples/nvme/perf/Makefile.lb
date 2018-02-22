@@ -30,17 +30,18 @@
 #  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
+include $(WORKSPACE_TOP)/common/Makefile.env
+LF_DEBUG_DIR:=$(shell component-tool localpath --repo=lightfield --type=$(BUILD_TYPE) lf_debug)
+RTE_SDK:=$(shell component-tool localpath --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk)
 
-SPDK_ROOT_DIR := $(abspath $(CURDIR)/../..)
+SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
-CFLAGS += $(ENV_CFLAGS)
-C_SRCS = nvme_ctrlr_cmd.c nvme_ctrlr.c nvme_ns_cmd.c nvme_ns.c nvme_pcie.c nvme_qpair.c nvme.c nvme_quirks.c nvme_transport.c nvme_uevent.c
-ifdef LF_DEBUG_DIR
-    C_SRCS += $(LF_DEBUG_DIR)/lf_pci_dev.c
+APP = perf
+
+ifeq ($(OS),Linux)
+LIBS += -laio
+CFLAGS += -DHAVE_LIBAIO
 endif
 
-C_SRCS-$(CONFIG_RDMA) += nvme_rdma.c
-LIBNAME = nvme
-
-include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
+include $(SPDK_ROOT_DIR)/mk/nvme.libtest.mk

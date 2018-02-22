@@ -116,6 +116,15 @@ struct spdk_nvme_ctrlr_opts {
 	 * or driver-assisted striping.
 	 */
 	uint32_t io_queue_requests;
+        
+        /**
+         * Lightfield flags: enable lightfield ddr and completion turnaround
+         * 
+         */
+        
+        uint32_t lf_flags;
+
+        uint64_t lf_ddr_addr;
 };
 
 /**

@@ -6,4 +6,5 @@ spdk:
         - make -f Makefile.lb install
     deps:
     - dpdk:dpdk-sdk
+    - lightfield:lf_debug
     - file://.

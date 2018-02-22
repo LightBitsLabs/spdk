@@ -52,6 +52,10 @@ COMMON_CFLAGS = -g $(C_OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-fie
 
 COMMON_CFLAGS += -include $(SPDK_ROOT_DIR)/config.h
 
+ifdef LF_DEBUG_DIR
+   COMMON_CFLAGS += -include $(LF_DEBUG_DIR)/include/lf_pci_dev.h
+endif
+
 ifeq ($(CONFIG_WERROR), y)
 COMMON_CFLAGS += -Werror
 endif

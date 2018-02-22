@@ -41,6 +41,7 @@ function linux_bind_driver() {
 		fi
 	fi
 	if [ `cat /sys/bus/pci/devices/$bdf/numa_node` -ne $numa_node ]; then
+            echo "unbinding $bdf"
             echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/unbind" 2> /dev/null || true
         fi
 }
