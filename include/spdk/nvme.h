@@ -123,8 +123,7 @@ struct spdk_nvme_ctrlr_opts {
          */
         
         uint32_t lf_flags;
-
-        uint64_t lf_ddr_addr;
+        uint64_t lf_offset;
 };
 
 /**

@@ -154,7 +154,6 @@ static int g_outstanding_commands;
 
 static bool g_latency_ssd_tracking_enable = false;
 static int g_latency_sw_tracking_level = 0;
-static int g_submit_infinitely = 0; // always refill the submission queue when processing completion
 
 static struct rte_mempool *task_pool;
 
@@ -168,33 +167,33 @@ static uint64_t g_tsc_rate;
 
 static uint32_t g_io_align = 0x200;
 static uint32_t g_io_size_bytes;
+static uint64_t g_size_in_ios;
 static int g_rw_percentage;
 static int g_is_random;
 static int g_queue_depth;
 static int g_time_in_sec;
-static int g_submit_once;
 
 #define DDR_SIZE (1024UL * 1024UL * 1024UL * 4UL)
 struct fpga_addr {
 	uint64_t current_addr;
 	uint64_t start_addr_port[2];
-	unsigned current_port;
-	uint64_t start_offset;
+	//unsigned current_port;
+	//uint64_t start_offset;
 };
 
 static uint32_t g_max_completions;
 static uint64_t g_ddr_size;
-static int g_n_port;
-static int g_numa_id = 0;
+static int      g_n_ddr;
+static int      g_lf_flags;
+static struct fpga_addr g_fpga_addr;
+static int      g_n_port;
 static uint32_t g_io_limit;
-struct fpga_addr g_fpga_addr;
+static int g_numa_node = 0; // TODO
 static int g_dpdk_mem;
 static int g_shm_id = -1;
 static uint32_t g_disable_sq_cmb;
 static bool g_no_pci;
 
-static int g_current_ctrlr_port = 0;
-static uint32_t g_lf_flags= 0;
 static const char *g_core_mask;
 
 struct trid_entry {
@@ -245,7 +244,7 @@ register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *ns)
 
 	entry->size_in_ios = spdk_nvme_ns_get_size(ns) /
 			     g_io_size_bytes;
-	entry->io_size_blocks = g_io_size_bytes / spdk_nvme_ns_get_sector_size(ns);
+        entry->io_size_blocks = g_io_size_bytes / spdk_nvme_ns_get_sector_size(ns);
 
 	snprintf(entry->name, 44, "%-20.20s (%-20.20s)", cdata->mn, cdata->sn);
 
@@ -454,20 +453,20 @@ aio_check_io(struct ns_worker_ctx *ns_ctx)
 static void task_ctor(struct rte_mempool *mp, void *arg, void *__task, unsigned id)
 {
 	struct perf_task *task = __task;
-	task->buf = spdk_dma_zmalloc(g_io_size_bytes, g_io_align, NULL);
+	task->buf = spdk_dma_zmalloc(g_io_size_bytes, g_io_align, &(task->phys_addr));
 	if (task->buf == NULL) {
 		fprintf(stderr, "task->buf spdk_dma_zmalloc failed\n");
 		exit(1);
 	}
-
-	task->phys_addr = g_fpga_addr.current_addr + g_fpga_addr.start_addr_port[g_fpga_addr.current_port];
-	
-        g_fpga_addr.current_port = (g_fpga_addr.current_port + 1) % g_n_port;
-	g_fpga_addr.current_addr = g_fpga_addr.current_addr + 4096;
-        if (g_fpga_addr.current_addr > g_fpga_addr.start_offset + g_ddr_size)
-		g_fpga_addr.current_addr = g_fpga_addr.start_offset;
-
-	memset(task->buf, id % 8 + 1, g_io_size_bytes);
+        if (g_lf_flags & LF_FLAGS_DATA) {
+            /*
+             * Use lightfield buffers.
+             * PCI address prefix is given later, according to spdk_nvme_ctrlr_opts
+             */
+            task->phys_addr = g_fpga_addr.current_addr;
+            g_fpga_addr.current_addr = (g_fpga_addr.current_addr + 4096) % g_ddr_size;
+        }
+        memset(task->buf, id % 8 + 1, g_io_size_bytes);
 }
 
 static void io_complete(void *ctx, const struct spdk_nvme_cpl *completion);
@@ -479,6 +478,7 @@ submit_single_io(struct ns_worker_ctx *ns_ctx)
 {
 	struct perf_task	*task = NULL;
 	uint64_t		offset_in_ios;
+	uint64_t		size_in_ios;
 	int			rc;
 	struct ns_entry		*entry = ns_ctx->entry;
 	uint64_t current_time;
@@ -503,12 +503,12 @@ submit_single_io(struct ns_worker_ctx *ns_ctx)
 	}
 
 	task->ns_ctx = ns_ctx;
-
+        size_in_ios = (g_size_in_ios > 0) ? entry->size_in_ios : g_size_in_ios;
 	if (g_is_random) {
-		offset_in_ios = rand_r(&seed) % entry->size_in_ios;
+		offset_in_ios = rand_r(&seed) % size_in_ios;
 	} else {
 		offset_in_ios = ns_ctx->offset_in_ios++;
-		if (ns_ctx->offset_in_ios == entry->size_in_ios) {
+		if (ns_ctx->offset_in_ios == size_in_ios) {
 			ns_ctx->offset_in_ios = 0;
 		}
 	}
@@ -524,7 +524,7 @@ submit_single_io(struct ns_worker_ctx *ns_ctx)
 		} else
 #endif
 		{
-                    rc = spdk_nvme_ns_cmd_read(entry->u.nvme.ns, ns_ctx->u.nvme.qpair, (void*)task->phys_addr,
+			rc = spdk_nvme_ns_cmd_read(entry->u.nvme.ns, ns_ctx->u.nvme.qpair, (void*)task->phys_addr,
 						   offset_in_ios * entry->io_size_blocks,
 						   entry->io_size_blocks, io_complete, task, 0);
 		}
@@ -546,7 +546,7 @@ submit_single_io(struct ns_worker_ctx *ns_ctx)
 		fprintf(stderr, "starting I/O failed\n");
 	}
 
-        ns_ctx->current_queue_depth++;
+	ns_ctx->current_queue_depth++;
 }
 
 static void
@@ -577,7 +577,7 @@ task_complete(struct perf_task *task)
 	 * to complete.  In this case, do not submit a new I/O to replace
 	 * the one just completed.
 	 */
-	if (g_submit_infinitely && !ns_ctx->is_draining) {
+	if (!ns_ctx->is_draining) {
 		submit_single_io(ns_ctx);
 	}
 }
@@ -621,8 +621,7 @@ drain_io(struct ns_worker_ctx *ns_ctx)
 static int
 init_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 {
-	
-        if (ns_ctx->entry->type == ENTRY_TYPE_AIO_FILE) {
+	if (ns_ctx->entry->type == ENTRY_TYPE_AIO_FILE) {
 #ifdef HAVE_LIBAIO
 		ns_ctx->u.aio.events = calloc(g_queue_depth, sizeof(struct io_event));
 		if (!ns_ctx->u.aio.events) {
@@ -641,7 +640,7 @@ init_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 		 *  For now, give each namespace/thread combination its own queue.
 		 */
 		ns_ctx->u.nvme.qpair = spdk_nvme_ctrlr_alloc_io_qpair(ns_ctx->entry->u.nvme.ctrlr, NULL, 0);
-                if (!ns_ctx->u.nvme.qpair) {
+		if (!ns_ctx->u.nvme.qpair) {
 			printf("ERROR: spdk_nvme_ctrlr_alloc_io_qpair failed\n");
 			return -1;
 		}
@@ -672,6 +671,7 @@ work_fn(void *arg)
 	uint64_t tsc_end;
 	struct worker_thread *worker = (struct worker_thread *)arg;
 	struct ns_worker_ctx *ns_ctx = NULL;
+
 	printf("Starting thread on core %u\n", worker->lcore);
 
 	/* Allocate a queue pair for each namespace. */
@@ -690,10 +690,10 @@ work_fn(void *arg)
 	ns_ctx = worker->ns_ctx;
 	while (ns_ctx != NULL) {
 		submit_io(ns_ctx, g_queue_depth);
-                ns_ctx = ns_ctx->next;
+		ns_ctx = ns_ctx->next;
 	}
 
-	while (!g_submit_once) {
+	while (1) {
 		/*
 		 * Check for completed I/O for each controller. A new
 		 * I/O will be submitted in the io_complete callback
@@ -702,12 +702,10 @@ work_fn(void *arg)
 		ns_ctx = worker->ns_ctx;
 		while (ns_ctx != NULL) {
 			check_io(ns_ctx);
-                        
-                        if (!ns_ctx->is_draining && (ns_ctx->current_queue_depth < g_queue_depth)) {
+                        if (!ns_ctx->is_draining && (ns_ctx->current_queue_depth < (uint64_t)g_queue_depth)) {
                             submit_io(ns_ctx, g_queue_depth - ns_ctx->current_queue_depth);
                             //submit_single_io(ns_ctx);
                         }
-
 			ns_ctx = ns_ctx->next;
 		}
 
@@ -742,7 +740,6 @@ static void usage(char *program_name)
 	printf("\t\t-L for latency summary, -LL for detailed histogram\n");
 	printf("\t[-l enable latency tracking via ssd (if supported), default: disabled]\n");
 	printf("\t[-t time in seconds]\n");
-	printf("\t[-Q submit once: send queue-depth ios (per core per ns) and quit. default: disabled\n");
 	printf("\t[-c core mask for I/O submission/completion.]\n");
 	printf("\t\t(default: 1)]\n");
 	printf("\t[-D disable submission queue in controller memory buffer, default: enabled]\n");
@@ -760,11 +757,11 @@ static void usage(char *program_name)
 	printf("\t[-m max completions per poll]\n");
 	printf("\t\t(default: 0 - unlimited)\n");
 	printf("\t[-i shared memory group ID]\n");
+	printf("\t[-N number of ddrs (default 3)]\n");
+	printf("\t[-P number of pci ports (default 2)]\n");
 	printf("\t[-S ddr_size (default %lu)]\n", DDR_SIZE);
+	printf("\t[-B namespace size (in ios), default - use the entire namespace\n");
 	printf("\t[-I IOPS limitation]\n");
-	printf("\tLightbits options:\n");
-        printf("\t[-P number of pci ports (default 2)]\n");
-        printf("\t[-C use completion relocator (default no)]\n");
 }
 
 static void
@@ -1021,27 +1018,25 @@ add_trid(const char *trid_str)
 	return 0;
 }
 
-static int
-get_fpga_address(int port)
-{
-    struct lf_pci_dev lf_dev;
-    struct lf_pci_dev_attr lf_dev_attr;
-    /*init device attributes*/
-    memset(&lf_dev_attr, 0, sizeof(struct lf_pci_dev_attr));
-    lf_dev_attr.numa = g_numa_id;
-    lf_dev_attr.subsystem_device = (port == 0) ? 0xc : 0xd; // lightfield ddr port 0
-    lf_dev_attr.vendor = 0x1d9a; // lightbits
-    lf_dev_attr.resource_id = 2; // ddr access
-    lf_dev_attr.mask = LF_PCI_DEV_ATTR_MASK_VENDOR |
+static int get_fpga_address(int port_num) {
+    struct lf_pci_dev pci_dev;
+    struct lf_pci_dev_attr pci_dev_attr;
+    
+    memset(&pci_dev_attr, 0, sizeof(struct lf_pci_dev_attr));
+    pci_dev_attr.numa = g_numa_node;
+    pci_dev_attr.subsystem_device = port_num ? 0xd : 0xc;
+    pci_dev_attr.vendor = 0x1d9a;
+    pci_dev_attr.resource_id = 2;
+    pci_dev_attr.mask = LF_PCI_DEV_ATTR_MASK_VENDOR |
                         LF_PCI_DEV_ATTR_MASK_SUBSYS |
                         LF_PCI_DEV_ATTR_MASK_RESOURCE |
                         LF_PCI_DEV_ATTR_MASK_NUMA;
-    /*connect to lightfield device*/
-    if (lf_pci_dev_init(&lf_dev, lf_dev_attr)) {
-        printf("ERROR: lightfield device initialization error\n");
-        return -1;
+
+    if (lf_pci_dev_init(&pci_dev,pci_dev_attr)) {
+        fprintf(stderr, "lf_pci_dev_init failed\n");
+        return 1;
     }
-    g_fpga_addr.start_addr_port[port] = lf_dev.phys; 
+    g_fpga_addr.start_addr_port[port_num] =  pci_dev.bar[2].phys;
     return 0;
 }
 
@@ -1056,19 +1051,17 @@ parse_args(int argc, char **argv)
 	g_queue_depth = 0;
 	g_io_size_bytes = 0;
 	workload_type = NULL;
-	g_time_in_sec = 5;
-        g_rw_percentage = -1;
-	g_submit_once = 0;
+	g_time_in_sec = 0;
+	g_rw_percentage = -1;
+        g_size_in_ios = 0;
 	g_core_mask = NULL;
 	g_max_completions = 0;
-	g_n_port = 1;
+	g_n_port = 2;
 	g_ddr_size = DDR_SIZE;
 	g_io_limit = 0;
         g_fpga_addr.current_addr = 0;
-        g_fpga_addr.current_port = 0;
-        g_fpga_addr.start_offset = 0;
 
-	while ((op = getopt(argc, argv, "c:d:i:lm:q:r:s:t:w:DLQCM:P:S:I:")) != -1) {
+	while ((op = getopt(argc, argv, "c:d:i:lm:q:r:s:t:w:DLCM:P:S:B:N:I:")) != -1) {
 		switch (op) {
 		case 'c':
 			g_core_mask = optarg;
@@ -1097,19 +1090,22 @@ parse_args(int argc, char **argv)
 		case 's':
 			g_io_size_bytes = atoi(optarg);
 			break;
-		case 't':
+                case 'B':
+                        g_size_in_ios = atoi(optarg);
+                        break;
+                case 't':
 			g_time_in_sec = atoi(optarg);
 			break;
-		case 'Q':
-			g_submit_once = 1;
+		case 'N':
+			g_n_ddr = atoi(optarg);
 			break;
                 case 'C':
-                        g_lf_flags |= (LF_FLAGS_EN | LF_FLAGS_COMP);
+                        g_lf_flags |= (LF_FLAGS_COMP);
                         break;
 		case 'P':
 			g_n_port = atoi(optarg);
 			if (g_n_port)
-                            g_lf_flags |= LF_FLAGS_EN;
+                            g_lf_flags |= LF_FLAGS_DATA;
                         break;
 		case 'S':
 			g_ddr_size= atoi(optarg);
@@ -1127,23 +1123,18 @@ parse_args(int argc, char **argv)
 		case 'D':
 			g_disable_sq_cmb = 1;
 			break;
-		case 'n':
-			g_numa_id = atoll(optarg);
-			break;
 		case 'I':
 			g_io_limit = atoi(optarg);
 			break;
 		default:
-                        usage(argv[0]);
+			usage(argv[0]);
 			return 1;
 		}
 	}
-        
-        if (g_lf_flags & LF_FLAGS_EN) {
+        if (g_lf_flags) {
             get_fpga_address(0);
             get_fpga_address(1);
         }
-
 	if (!g_queue_depth) {
 		usage(argv[0]);
 		return 1;
@@ -1156,10 +1147,9 @@ parse_args(int argc, char **argv)
 		usage(argv[0]);
 		return 1;
 	}
-	if (!g_time_in_sec && !g_submit_once) {
-            printf("no time or iteration limit\n");
-            usage(argv[0]);
-            return 1;
+	if (!g_time_in_sec) {
+		usage(argv[0]);
+		return 1;
 	}
 
 	if (strcmp(workload_type, "read") &&
@@ -1279,6 +1269,7 @@ unregister_workers(void)
 	}
 }
 
+static int g_current_ctrlr_port = 0;
 static bool
 probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
 	 struct spdk_nvme_ctrlr_opts *opts)
@@ -1314,8 +1305,8 @@ probe_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
 
 	opts->io_queue_size = g_queue_depth + 1;
         opts->lf_flags = g_lf_flags;
-        opts->lf_ddr_addr = g_fpga_addr.start_addr_port[g_current_ctrlr_port];
-        g_current_ctrlr_port = (g_current_ctrlr_port + 1) % g_n_port;
+        opts->lf_offset = g_lf_flags ? (g_fpga_addr.start_addr_port[g_current_ctrlr_port]) : 0;
+        g_current_ctrlr_port = g_n_port ? ((g_current_ctrlr_port + 1) % g_n_port) : 0;
 	return true;
 }
 
@@ -1347,7 +1338,8 @@ attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
 		       trid->traddr,
 		       pci_id.vendor_id, pci_id.device_id);
 	}
-        register_ctrlr(ctrlr);
+
+	register_ctrlr(ctrlr);
 }
 
 static int
@@ -1356,6 +1348,7 @@ register_controllers(void)
 	struct trid_entry *trid_entry;
 
 	printf("Initializing NVMe Controllers\n");
+
 	TAILQ_FOREACH(trid_entry, &g_trid_list, tailq) {
 		if (spdk_nvme_probe(&trid_entry->trid, NULL, probe_cb, attach_cb, NULL) != 0) {
 			fprintf(stderr, "spdk_nvme_probe() failed for transport address '%s'\n",
@@ -1528,7 +1521,7 @@ int main(int argc, char **argv)
 			assert(master_worker == NULL);
 			master_worker = worker;
 		}
-                worker = worker->next;
+		worker = worker->next;
 	}
 
 	assert(master_worker != NULL);

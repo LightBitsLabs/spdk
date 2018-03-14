@@ -32,6 +32,7 @@
  */
 
 #include "nvme_internal.h"
+#include "spdk/nvme_lightbits.h"
 
 static struct nvme_request *_nvme_ns_cmd_rw(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 		const struct nvme_payload *payload, uint32_t payload_offset, uint32_t md_offset,
@@ -318,6 +319,14 @@ _nvme_ns_cmd_split_sgl_request(struct spdk_nvme_ns *ns,
 	return req;
 }
 
+static inline void *convert_phys_addr(struct spdk_nvme_ctrlr_opts opts, void * phys_addr)
+{
+    uint64_t res = (uint64_t) phys_addr;
+    if (opts.lf_flags & LF_FLAGS_DATA)
+        res += opts.lf_offset;
+    return (void *) res; 
+}
+
 static struct nvme_request *
 _nvme_ns_cmd_rw(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 		const struct nvme_payload *payload, uint32_t payload_offset, uint32_t md_offset,
@@ -352,6 +361,11 @@ _nvme_ns_cmd_rw(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 
 	req->payload_offset = payload_offset;
 	req->md_offset = md_offset;
+        
+        /*
+         * address conversion
+         */
+        req->payload.u.contig = convert_phys_addr(ns->ctrlr->opts, req->payload.u.contig);
 
 	/*
 	 * Intel DC P3*00 NVMe controllers benefit from driver-assisted striping.

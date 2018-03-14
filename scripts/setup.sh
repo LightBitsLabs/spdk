@@ -32,7 +32,7 @@ function linux_bind_driver() {
 	echo "$bdf ($ven_dev_id): $old_driver_name -> $driver_name"
 
 	echo "$ven_dev_id" > "/sys/bus/pci/drivers/$driver_name/new_id" 2> /dev/null || true
-        echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/bind" 2> /dev/null || true
+	echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/bind" 2> /dev/null || true
 
 	iommu_group=$(basename $(readlink -f /sys/bus/pci/devices/$bdf/iommu_group))
 	if [ -e "/dev/vfio/$iommu_group" ]; then
@@ -40,10 +40,6 @@ function linux_bind_driver() {
 			chown "$username" "/dev/vfio/$iommu_group"
 		fi
 	fi
-	if [ `cat /sys/bus/pci/devices/$bdf/numa_node` -ne $numa_node ]; then
-            echo "unbinding $bdf"
-            echo "$bdf" > "/sys/bus/pci/drivers/$driver_name/unbind" 2> /dev/null || true
-        fi
 }
 
 function linux_hugetlbfs_mount() {
@@ -63,8 +59,15 @@ function configure_linux {
 		linux_bind_driver "$bdf" "$driver_name"
 	done
 
-
-	# IOAT
+        # Unbind the other numa SSD devices
+        for d in `lspci | grep "Non-Volatile memory controller" | awk '{print "0000:" $1}'`; do 
+            if [ `cat /sys/bus/pci/devices/$d/numa_node` -ne $numa_node ]; then
+                echo "unbind $d"; 
+                echo $d > /sys/bus/pci/drivers/uio_pci_generic/unbind
+            fi
+        done
+        
+        # IOAT
 	TMP=`mktemp`
 	#collect all the device_id info of ioat devices.
 	grep "PCI_DEVICE_ID_INTEL_IOAT" $pci_ids_dir/pci_ids.h \
@@ -211,28 +214,25 @@ function reset_freebsd {
 	kldunload nic_uio.ko || true
 }
 
-: ${NRHUGE:=1024}
-
 function usage {
-    printf "%-6s%-15s: %s\n" "-h" "--help" "print this message"
-    printf "%-6s%-15s: %s\n" "-u" "--username" "default sudo-user"
-    printf "%-6s%-15s: %s\n" "-m" "--mode" "default config"
-    printf "%-6s%-15s: %s\n" "-n" "--numa_node" "default 0"
-    printf "%-6s%-15s: %s\n" ""   "--lightbox" "default no"
+        printf " %-10s %-15s: %s\n" "-h" "--help" "print this message"
+        printf " %-10s %-15s: %s\n" "-u" "--username" "default SUDO_USER ($SUDO_USER)"
+        printf " %-10s %-15s: %s\n" "-m" "--mode" "reset\\config\\status. default config"
+        printf " %-10s %-15s: %s\n" "-n" "--numa_node" "default 0"
+        printf " %-10s %-15s: %s\n" "-lb" "--lightbox" "lightbits config, default OFF"
 }
 
 function parser {
-    username=$SUDO_USER
-    mode="config"
-    numa_node=0
-    lightbox=
-    while [ $1 ]; do
-        case $1 in
-            -h | --help)
-                usage
-                exit
-                ;;
-            -u | --username)
+	username=$SUDO_USER
+	mode="config"
+	numa_node=0
+	 while [ $1 ]; do
+	    case $1 in
+	    -h | --help)
+		usage
+		exit
+		;;
+	    -u | --username)
 		username=$2
 		if [ ! $2 ]; then usage; exit; fi
 		shift 2
@@ -247,11 +247,11 @@ function parser {
 		if [ ! $2 ]; then usage; exit; fi
 		shift 2
 		;;
-	    --lightbox)
+	    -lb | --lightbox)
 		lightbox=1
 		shift 1
 		;;
-            *)
+	    *)
 		echo "unknown input $1"
 		usage
 		exit
@@ -259,16 +259,26 @@ function parser {
 	    esac
 	done
 }
+
+: ${NRHUGE:=1024}
 parser $@
+
+if [ "$username" = "reset" -o "$username" = "config" -o "$username" = "status" ]; then
+	mode="$username"
+	username=""
+fi
 
 if [ $lightbox ]; then
     rootdir=.
     pci_ids_dir=.
-    echo "Running Lightbits setup"
+    echo "Running Lightbits setup on NUMA $numa_node"
 fi
 
 if [ "$username" = "" ]; then
-    username=`logname 2>/dev/null` || true
+	username="$SUDO_USER"
+	if [ "$username" = "" ]; then
+		username=`logname 2>/dev/null` || true
+	fi
 fi
 
 if [ `uname` = Linux ]; then

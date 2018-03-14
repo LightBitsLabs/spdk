@@ -107,7 +107,6 @@ struct nvme_pcie_ctrlr {
 
 	/* Flag to indicate the MMIO register has been remapped */
 	bool is_remapped;
-
 };
 
 struct nvme_tracker {
@@ -1271,7 +1270,7 @@ static int get_ctrlr_numa_id(struct spdk_nvme_ctrlr *ctrlr)
 
 static int lf_stride_id = 0;
 static uint64_t 
-alloc_lf_completion_stride(struct nvme_pcie_qpair *pqpair, struct spdk_nvme_ctrlr *ctrlr, uint64_t lf_port_addr) 
+alloc_lf_completion_stride(struct nvme_pcie_qpair *pqpair, struct spdk_nvme_ctrlr *ctrlr, uint64_t lf_offset) 
 {
     struct lf_pci_dev lf_dev;
     struct lf_pci_dev_attr lf_dev_attr;
@@ -1310,8 +1309,10 @@ alloc_lf_completion_stride(struct nvme_pcie_qpair *pqpair, struct spdk_nvme_ctrl
     if (log_stride < 14)
         log_stride = 14; // 4k alignment
 
-    lf_addr = lf_port_addr + LF_COMP_PORT_OFFSET + lf_stride_id * (1 << log_stride);
-    
+    lf_addr = lf_offset + LF_COMP_PORT_OFFSET + lf_stride_id * (1 << log_stride);
+    spdk_log(SPDK_LOG_NOTICE,__FILE__, __LINE__, __func__, "setting stride %d: host-addr: 0x%lx lf-addr: 0x%lx\n", 
+            lf_stride_id,pqpair->cpl_bus_addr, lf_addr);
+
     lf_pci_dev_write(&lf_dev, LOG_STRIDE_ADDR, log_stride);
     lf_pci_dev_write(&lf_dev, STRIDE_ID_ADDR, lf_stride_id);
     lf_pci_dev_write(&lf_dev, HOST_ADDR_LO , pqpair->cpl_bus_addr & 0xFFFFFFFF);
@@ -1354,7 +1355,7 @@ nvme_pcie_ctrlr_cmd_create_io_cq(struct spdk_nvme_ctrlr *ctrlr,
         
         /*route the ssd completions to the fpga*/
         if ((ctrlr->opts.lf_flags & LF_FLAGS_COMP) && !nvme_qpair_is_admin_queue(io_que)) {
-            cmd->dptr.prp.prp1 = alloc_lf_completion_stride(pqpair,ctrlr, ctrlr->opts.lf_ddr_addr);
+            cmd->dptr.prp.prp1 = alloc_lf_completion_stride(pqpair,ctrlr, ctrlr->opts.lf_offset);
             if (!cmd->dptr.prp.prp1)
                 return -1;
         }
@@ -1443,7 +1444,7 @@ _nvme_pcie_ctrlr_create_io_qpair(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme
 	while (status.done == false) {
 		spdk_nvme_qpair_process_completions(ctrlr->adminq, 0);
 	}
-        if (spdk_nvme_cpl_is_error(&status.cpl)) {
+	if (spdk_nvme_cpl_is_error(&status.cpl)) {
 		SPDK_ERRLOG("nvme_create_io_cq failed!\n");
 		return -1;
 	}
@@ -1506,6 +1507,7 @@ nvme_pcie_ctrlr_create_io_qpair(struct spdk_nvme_ctrlr *ctrlr, uint16_t qid,
 		nvme_pcie_qpair_destroy(qpair);
 		return NULL;
 	}
+
 	rc = _nvme_pcie_ctrlr_create_io_qpair(ctrlr, qpair, qid);
 
 	if (rc != 0) {
@@ -1985,10 +1987,10 @@ nvme_pcie_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_
 	while (1) {
 		cpl = &pqpair->cpl[pqpair->cq_head];
 
-                if (cpl->status.p != pqpair->phase)
+		if (cpl->status.p != pqpair->phase)
 			break;
-		
-                tr = &pqpair->tr[cpl->cid];
+
+		tr = &pqpair->tr[cpl->cid];
 
 		if (tr->active) {
 			nvme_pcie_qpair_complete_tracker(qpair, tr, cpl, true);
