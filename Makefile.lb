@@ -22,6 +22,7 @@ install: |checkout_deps
 	$(Q) cp -a build $(SPDK_INSTALL_DIR)
 	$(Q) cp -a mk $(SPDK_INSTALL_DIR)
 	$(Q) cp -a CONFIG* $(SPDK_INSTALL_DIR)
+	$(Q) cp -a build/lib $(SPDK_INSTALL_DIR)
 	$(Q) cp -a lib $(SPDK_INSTALL_DIR)
 	$(Q) cp -a config* $(SPDK_INSTALL_DIR)
 	$(Q) cp -a include $(SPDK_INSTALL_DIR)
