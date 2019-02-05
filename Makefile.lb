@@ -26,6 +26,11 @@ install: |checkout_deps
 	$(Q) cp -a lib $(SPDK_INSTALL_DIR)
 	$(Q) cp -a config* $(SPDK_INSTALL_DIR)
 	$(Q) cp -a include $(SPDK_INSTALL_DIR)
+	$(Q) sed -i 's/#include <arpa\/inet.h>/\/\/#include <arpa\/inet.h>/g' $(SPDK_INSTALL_DIR)/include/spdk/stdinc.h
+	$(Q) sed -i 's/#include <netdb.h>/\/\/#include <netdb.h>/g' $(SPDK_INSTALL_DIR)/include/spdk/stdinc.h
+	$(Q) sed -i 's/#include <net\/if.h>/\/\/#include <net\/if.h>/g' $(SPDK_INSTALL_DIR)/include/spdk/stdinc.h
+	$(Q) sed -i 's/#include <netinet\/in.h>/\/\/#include <netinet\/in.h>/g' $(SPDK_INSTALL_DIR)/include/spdk/stdinc.h
+	$(Q) sed -i 's/#include <netinet\/tcp.h>/\/\/#include <netinet\/tcp.h>/g' $(SPDK_INSTALL_DIR)/include/spdk/stdinc.h
 
 checkin: 
 	$(Q)component-tool checkin --repo=spdk --type=$(BUILD_TYPE) spdk-sdk
