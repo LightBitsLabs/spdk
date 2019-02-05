@@ -1044,6 +1044,9 @@ int spdk_mem_register(void *vaddr, size_t len);
  */
 int spdk_mem_unregister(void *vaddr, size_t len);
 
+int spdk_mem_map_init(void);
+int spdk_vtophys_init(void);
+
 #ifdef __cplusplus
 }
 #endif

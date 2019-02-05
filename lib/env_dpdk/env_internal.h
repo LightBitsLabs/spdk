@@ -84,9 +84,6 @@ int spdk_pci_enumerate(struct spdk_pci_enum_ctx *ctx, spdk_pci_enum_cb enum_cb, 
 int spdk_pci_device_attach(struct spdk_pci_enum_ctx *ctx, spdk_pci_enum_cb enum_cb, void *enum_ctx,
 			   struct spdk_pci_addr *pci_address);
 
-int spdk_mem_map_init(void);
-int spdk_vtophys_init(void);
-
 /**
  * Report a DMA-capable PCI device to the vtophys translation code.
  * Increases the refcount of active DMA-capable devices managed by SPDK.
