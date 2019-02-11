@@ -102,7 +102,11 @@ spdk_pci_device_detach(struct spdk_pci_device *device)
 	addr.func = device->addr.function;
 
 	spdk_pci_addr_fmt(bdf, sizeof(bdf), &addr);
+#if RTE_VERSION >= RTE_VERSION_NUM(18, 11, 0, 0)
+	if (rte_dev_remove(&device->device) < 0) {
+#else
 	if (rte_eal_dev_detach(&device->device) < 0) {
+#endif
 		fprintf(stderr, "Failed to detach PCI device %s (device already removed?).\n", bdf);
 	}
 #elif RTE_VERSION >= RTE_VERSION_NUM(17, 05, 0, 4)
@@ -144,7 +148,9 @@ spdk_pci_device_attach(struct spdk_pci_enum_ctx *ctx,
 	ctx->cb_fn = enum_cb;
 	ctx->cb_arg = enum_ctx;
 
-#if RTE_VERSION >= RTE_VERSION_NUM(17, 11, 0, 3)
+#if RTE_VERSION >= RTE_VERSION_NUM(18, 11, 0, 0)
+	if (rte_dev_probe(bdf) != 0) {
+#elif RTE_VERSION >= RTE_VERSION_NUM(17, 11, 0, 3)
 	if (rte_eal_dev_attach(bdf, "") != 0) {
 #elif RTE_VERSION >= RTE_VERSION_NUM(17, 05, 0, 4)
 	if (rte_pci_probe_one(&addr) != 0) {
