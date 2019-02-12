@@ -682,7 +682,7 @@ submit_single_io(struct perf_task *task)
 			task->is_read = true;
 
 			rc = spdk_nvme_ns_cmd_read_with_md(entry->u.nvme.ns, ns_ctx->u.nvme.qpair,
-							   (void*)task->phys_addr, NULL,
+							   (void*)task->buf, NULL,
 							   task->lba,
 							   entry->io_size_blocks, io_complete,
 							   task, entry->io_flags,
@@ -700,7 +700,7 @@ submit_single_io(struct perf_task *task)
 						   entry->io_size_blocks, true);
 
 			rc = spdk_nvme_ns_cmd_write_with_md(entry->u.nvme.ns, ns_ctx->u.nvme.qpair,
-							    (void*)task->phys_addr, NULL,
+							    (void*)task->buf, NULL,
 							    task->lba,
 							    entry->io_size_blocks, io_complete,
 							    task, entry->io_flags,
@@ -798,7 +798,7 @@ submit_io(struct ns_worker_ctx *ns_ctx, int queue_depth)
 		 * namespace without metadata
 		 */
 		max_io_size_bytes = g_io_size_bytes + g_max_io_md_size * g_max_io_size_blocks;
-		task->buf = spdk_dma_zmalloc(max_io_size_bytes, g_io_align, NULL);
+		task->buf = spdk_dma_zmalloc(max_io_size_bytes, g_io_align, &task->phys_addr);
 		if (task->buf == NULL) {
 			fprintf(stderr, "task->buf spdk_dma_zmalloc failed\n");
 			exit(1);
