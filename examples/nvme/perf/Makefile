@@ -35,10 +35,11 @@ SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
 APP = perf
-
 ifeq ($(OS),Linux)
-LIBS += -laio
-CFLAGS += -DHAVE_LIBAIO
+#LIBS += -laio
+#CFLAGS += -DHAVE_LIBAIO
 endif
 
 include $(SPDK_ROOT_DIR)/mk/nvme.libtest.mk
+LIBS += -lnuma
+LIBS += -lrte_kvargs -L $(CONFIG_DPDK_DIR)/share/dpdk/arm64-armv8a-linuxapp-gcc/lib
