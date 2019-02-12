@@ -803,17 +803,6 @@ submit_io(struct ns_worker_ctx *ns_ctx, int queue_depth)
 			fprintf(stderr, "task->buf spdk_dma_zmalloc failed\n");
 			exit(1);
 		}
-
-		task->phys_addr = g_fpga_addrs[g_current_ddr].current_addr + g_fpga_addrs[g_current_ddr].start_ad
-
-		g_fpga_addrs[g_current_ddr].current_port = (g_fpga_addrs[g_current_ddr].current_port + 1) % 2;
-
-		g_fpga_addrs[g_current_ddr].current_addr = g_fpga_addrs[g_current_ddr].current_addr + 4096;
-		if (g_fpga_addrs[g_current_ddr].current_addr + 4096 > DDR_SIZE)
-			g_fpga_addrs[g_current_ddr].current_addr = 0;
-
-		g_current_ddr = (g_current_ddr + 1) % 3;
-
 		memset(task->buf, queue_depth % 8 + 1, max_io_size_bytes);
 
 		task->ns_ctx = ns_ctx;
