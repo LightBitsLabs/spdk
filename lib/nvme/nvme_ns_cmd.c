@@ -32,6 +32,7 @@
  */
 
 #include "nvme_internal.h"
+#include "spdk/likely.h"
 
 static struct nvme_request *_nvme_ns_cmd_rw(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 		const struct nvme_payload *payload, uint32_t payload_offset, uint32_t md_offset,
@@ -619,10 +620,11 @@ spdk_nvme_ns_cmd_readv(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 	struct nvme_request *req;
 	struct nvme_payload payload;
 
+#if (0)
 	if (reset_sgl_fn == NULL || next_sge_fn == NULL) {
 		return -EINVAL;
 	}
-
+#endif
 	payload.type = NVME_PAYLOAD_TYPE_SGL;
 	payload.md = NULL;
 	payload.u.sgl.reset_sgl_fn = reset_sgl_fn;
@@ -630,8 +632,8 @@ spdk_nvme_ns_cmd_readv(struct spdk_nvme_ns *ns, struct spdk_nvme_qpair *qpair,
 	payload.u.sgl.cb_arg = cb_arg;
 
 	req = _nvme_ns_cmd_rw(ns, qpair, &payload, 0, 0, lba, lba_count, cb_fn, cb_arg, SPDK_NVME_OPC_READ,
-			      io_flags, 0, 0, true);
-	if (req != NULL) {
+			      io_flags, 0, 0, false);
+	if (spdk_likely(req != NULL)) {
 		return nvme_qpair_submit_request(qpair, req);
 	} else {
 		return -ENOMEM;

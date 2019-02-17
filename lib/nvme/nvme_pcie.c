@@ -1920,8 +1920,8 @@ nvme_pcie_qpair_check_enabled(struct spdk_nvme_qpair *qpair)
 {
 	struct nvme_pcie_qpair *pqpair = nvme_pcie_qpair(qpair);
 
-	if (!pqpair->is_enabled &&
-	    !qpair->ctrlr->is_resetting) {
+	if (spdk_unlikely(!pqpair->is_enabled &&
+	    !qpair->ctrlr->is_resetting)) {
 		nvme_qpair_enable(qpair);
 	}
 	return pqpair->is_enabled;
@@ -1938,13 +1938,13 @@ nvme_pcie_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_reques
 
 	nvme_pcie_qpair_check_enabled(qpair);
 
-	if (nvme_qpair_is_admin_queue(qpair)) {
+	if (spdk_unlikely(nvme_qpair_is_admin_queue(qpair))) {
 		nvme_robust_mutex_lock(&ctrlr->ctrlr_lock);
 	}
 
 	tr = TAILQ_FIRST(&pqpair->free_tr);
 
-	if (tr == NULL || !pqpair->is_enabled) {
+	if (spdk_unlikely(tr == NULL || !pqpair->is_enabled)) {
 		/*
 		 * No tracker is available, or the qpair is disabled due to
 		 *  an in-progress controller-level reset.
