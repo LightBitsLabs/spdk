@@ -3,7 +3,7 @@ include $(WORKSPACE_TOP)/common/Makefile.env
 RTE_SDK:=$(shell component-tool localpath --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk)
 SPDK_INSTALL_DIR ?= $(shell component-tool localpath --repo=spdk --type=$(BUILD_TYPE) spdk-sdk)
 
-MACHINE_CFLAGS := "-mtune=cortex-a72"
+MACHINE_CFLAGS := "-O3 -mtune=cortex-a72 -fno-omit-frame-pointer"
 
 all: build
 
