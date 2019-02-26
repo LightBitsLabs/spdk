@@ -32,6 +32,7 @@
  */
 
 #include "nvme_internal.h"
+#include "spdk/likely.h"
 
 static void nvme_qpair_fail(struct spdk_nvme_qpair *qpair);
 
@@ -359,15 +360,15 @@ spdk_nvme_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_
 {
 	int32_t ret;
 
-	if (qpair->ctrlr->is_failed) {
+	if (spdk_unlikely(qpair->ctrlr->is_failed)) {
 		nvme_qpair_fail(qpair);
 		return 0;
 	}
 
-	qpair->in_completion_context = 1;
+	//qpair->in_completion_context = 1;
 	ret = nvme_transport_qpair_process_completions(qpair, max_completions);
-	qpair->in_completion_context = 0;
-	if (qpair->delete_after_completion_context) {
+	//qpair->in_completion_context = 0;
+	if (spdk_unlikely(qpair->delete_after_completion_context)) {
 		/*
 		 * A request to delete this qpair was made in the context of this completion
 		 *  routine - so it is safe to delete it now.

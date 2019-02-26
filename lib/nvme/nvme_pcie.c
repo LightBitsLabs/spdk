@@ -1218,13 +1218,13 @@ nvme_pcie_qpair_complete_tracker(struct spdk_nvme_qpair *qpair, struct nvme_trac
 
 	req = tr->req;
 
-	assert(req != NULL);
+	assert(spdk_unlikely(req != NULL));
 
 	error = spdk_nvme_cpl_is_error(cpl);
 	retry = error && nvme_completion_is_retry(cpl) &&
 		req->retries < spdk_nvme_retry_count;
 
-	if (error && print_on_error) {
+	if (spdk_unlikely(error && print_on_error)) {
 		nvme_qpair_print_command(qpair, &req->cmd);
 		nvme_qpair_print_completion(qpair, cpl);
 	}
@@ -1232,25 +1232,25 @@ nvme_pcie_qpair_complete_tracker(struct spdk_nvme_qpair *qpair, struct nvme_trac
 	was_active = pqpair->tr[cpl->cid].active;
 	pqpair->tr[cpl->cid].active = false;
 
-	assert(cpl->cid == req->cmd.cid);
+	assert(likely(cpl->cid == req->cmd.cid));
 
-	if (retry) {
+	if (spdk_unlikely(retry)) {
 		req->retries++;
 		nvme_pcie_qpair_submit_tracker(qpair, tr);
 	} else {
-		if (was_active) {
+		if (spdk_likely(was_active)) {
 			/* Only check admin requests from different processes. */
-			if (nvme_qpair_is_admin_queue(qpair) && req->pid != getpid()) {
+			if (spdk_unlikely(nvme_qpair_is_admin_queue(qpair)) && req->pid != getpid()) {
 				req_from_current_proc = false;
 				nvme_pcie_qpair_insert_pending_admin_request(qpair, req, cpl);
 			} else {
-				if (req->cb_fn) {
+				if (spdk_likely(req->cb_fn)) {
 					req->cb_fn(req->cb_arg, cpl);
 				}
 			}
 		}
 
-		if (req_from_current_proc == true) {
+		if (spdk_likely(req_from_current_proc == true)) {
 			nvme_free_request(req);
 		}
 
@@ -2093,7 +2093,7 @@ nvme_pcie_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_
 		tr = &pqpair->tr[cpl->cid];
 		pqpair->sq_head = cpl->sqhd;
 
-		if (tr->active) {
+		if (spdk_likely(tr->active)) {
 			nvme_pcie_qpair_complete_tracker(qpair, tr, cpl, true);
 		} else {
 			SPDK_ERRLOG("cpl does not map to outstanding cmd\n");
