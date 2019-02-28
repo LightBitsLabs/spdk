@@ -359,12 +359,12 @@ int32_t
 spdk_nvme_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_completions)
 {
 	int32_t ret;
-
+#if (0)
 	if (spdk_unlikely(qpair->ctrlr->is_failed)) {
 		nvme_qpair_fail(qpair);
 		return 0;
 	}
-
+#endif
 	//qpair->in_completion_context = 1;
 	ret = nvme_transport_qpair_process_completions(qpair, max_completions);
 	//qpair->in_completion_context = 0;
