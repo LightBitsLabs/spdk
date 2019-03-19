@@ -1,0 +1,39 @@
+Running consistency_test test on lightbox
+
+1. compile spdk
+    #use the regular rootfs build, or: 
+    cd $WORKSPACE_TOP/spdk
+    dockerize make -f Makefile.lb
+
+2. compile consistency_test
+    cd $WORKSPACE_TOP/spdk/examples/nvme/consistency_test
+    dockerize make -f Makefile.lb
+   
+3. scp modules and scripts. You will need:
+    $WORKSPACE_TOP/kernelight/drivers/lightfield/core/lf.ko
+    $WORKSPACE_TOP/spdk/examples/nvme/consistency_test/consistency_test
+    $WORKSPACE_TOP/spdk/scripts/setup.sh
+    $WORKSPACE_TOP/spdk/include/spdk/pci_ids.h
+    
+
+4. Setup
+    insmod lf.ko
+    # bind ssds 
+    ./setup.sh --lightbox
+
+5. Run the test.
+Examples:
+    1. Simple iops test(70-30):
+        ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -t 5
+    2. Use the fpga buffers with <p> ports (p=1 or p=2):
+        ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -P <p> -t 5
+    3. Use the fpga nvme-completion turnaround:
+        ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -C -t 5
+    4. 8 read commands test (one core, once device queue depth 8):
+        ./consistency_test -q 8 -Q -s 4096 -w write -d 256 -c 1 -r 'trtype:PCIe traddr:0000:09:00.0'
+
+6. Tips
+    1. use less than all of the cpus (in this case: remove 11 disks):
+        for d in `lspci | grep Non | tail -11 | awk '{print "0000:" $1}'`; do echo "unbind $d"; echo $d > /sys/bus/pci/drivers/uio_pci_generic/unbind; done
+        # bring them back:
+        for d in `lspci | grep Non | tail -11 | awk '{print "0000:" $1}'`; do echo "bind $d"; echo $d > /sys/bus/pci/drivers/uio_pci_generic/bind; done
