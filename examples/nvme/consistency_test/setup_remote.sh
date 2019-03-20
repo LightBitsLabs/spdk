@@ -5,7 +5,6 @@ SOURCE_LIST=()
 SOURCE_LIST+=("consistency_test")
 SOURCE_LIST+=("setup.sh")
 SOURCE_LIST+=("README")
-SOURCE_LIST+=("$WORKSPACE_TOP/spdk/scripts/common.sh")
 SOURCE_LIST+=("$WORKSPACE_TOP/spdk/include/spdk/pci_ids.h")
 
 function run_cmd {
@@ -73,9 +72,9 @@ parser $@
 echo "Creating modified setup.sh script"
 
 for s in ${SOURCE_LIST[@]}; do
-	echo "Copying $s to root@$server:/tmp"
-	copy_to_server $s /tmp/
+	echo "Copying $s to root@$server:/root/"
+	copy_to_server $s /root/
 done
 
-run_cmd chmod +x /tmp/setup.sh
-run_cmd "export SPDK_NUMA_NODE=$numa"
+run_cmd chmod +x setup.sh
+run_cmd "./setup.sh config $numa"
