@@ -902,8 +902,8 @@ work_fn(void *arg)
 			check_io(ns_ctx);
 
 			if (!ns_ctx->is_draining && (ns_ctx->current_queue_depth == 0)) {
-				submit_io(ns_ctx, 1);
-				// TODO: was: submit_single_io(ns_ctx);
+				// submit_io(ns_ctx, 1);
+				submit_single_io(ns_ctx);
 			}
 
 			ns_ctx = ns_ctx->next;
