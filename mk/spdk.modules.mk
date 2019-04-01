@@ -84,7 +84,7 @@ ifeq ($(CONFIG_FTL),y)
 BLOCKDEV_MODULES_LIST += ftl
 endif
 
-SOCK_MODULES_LIST = sock_posix
+SOCK_MODULES_LIST = sock_posix sock_lb
 
 ifeq ($(CONFIG_VPP),y)
 SYS_LIBS += -Wl,--whole-archive

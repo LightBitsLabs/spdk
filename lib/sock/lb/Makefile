@@ -31,15 +31,10 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-SPDK_ROOT_DIR := $(abspath $(CURDIR)/../..)
+SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
-C_SRCS = sock.c net_framework.c
-
-LIBNAME = sock
-
-DIRS-y += posix
-DIRS-y += lb
-DIRS-$(CONFIG_VPP) += vpp
+LIBNAME = sock_lb
+C_SRCS = lb.c
 
 include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
