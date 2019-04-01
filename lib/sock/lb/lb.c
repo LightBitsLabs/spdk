@@ -32,17 +32,17 @@
  */
 
 #include "spdk/stdinc.h"
-
-#if defined(__linux__)
-#include <sys/epoll.h>
-#elif defined(__FreeBSD__)
-#include <sys/event.h>
-#endif
-
 #include "spdk/log.h"
 #include "spdk/sock.h"
 #include "spdk_internal/sock.h"
 #include "spdk/net.h"
+
+#include <rte_common.h>
+#include <rte_eal.h>
+#include "lwip/init.h"
+#include "network.h"
+#include "rx_buffer.h"
+#include "procstat.h"
 
 #define MAX_TMPBUF 1024
 #define PORTNUMLEN 32
@@ -59,6 +59,8 @@ struct spdk_lb_sock_group_impl {
 
 #define __lb_sock(sock) (struct spdk_lb_sock *)sock
 #define __lb_group_impl(group) (struct spdk_lb_sock_group_impl *)group
+
+struct procstat_context *procstat_ctx;
 
 static int
 spdk_lb_sock_getaddr(struct spdk_sock *_sock, char *saddr, int slen, uint16_t *sport,
@@ -139,40 +141,6 @@ spdk_lb_sock_is_ipv4(struct spdk_sock *_sock)
 	return true;
 }
 
-#if 0
-int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
-		struct procstat_context *procstat_ctx)
-{
-	unsigned rx_size = NUM_MBUFS_INCOMING_PER_QUEUE * DEFAULT_NUM_HW_PORTS;
-	struct rte_mempool *rx_pool;
-	char name[] = "rx_pool_NN";
-	int c, ret;
-
-	RTE_LCORE_FOREACH(c) {
-		snprintf(name + sizeof(name) - 3, 3, "%d", c);
-		rx_pool = rte_pktmbuf_pool_create_by_ops(name, rx_size,
-			RTE_MEMPOOL_CACHE_MAX_SIZE, sizeof(struct rx_buffer),
-			RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id(),
-			"ring_sp_sc");
-		if (!rx_pool) {
-			SPDK_ERRLOG("Failed to alloc rx_pool");
-			return -ENOMEM;
-		}
-
-		rte_mempool_obj_iter(rx_pool, rte_pktmbuf_init, 0);
-		rte_mempool_obj_iter(rx_pool, net_rxbuf_ctor, 0);
-		rx_pools[c] = rx_pool;
-
-		ret = lwip_register_pool_stats(rx_pool, name, parent,
-					procstat_ctx);
-		ASSERT(ret == 0);
-		SPDK_ERRLOG("Allocated rx pool[%d]: %p", c, rx_pool);
-	}
-
-	return 0;
-}
-#endif
-
 static struct spdk_sock_group_impl *
 spdk_lb_sock_group_impl_create(void)
 {
@@ -228,13 +196,62 @@ static struct spdk_net_impl g_lb_net_impl = {
 
 SPDK_NET_IMPL_REGISTER(lb, &g_lb_net_impl);
 
+#define NUM_MBUFS_INCOMING_PER_QUEUE 1024
+int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
+		struct procstat_context *procstat_ctx)
+{
+	unsigned rx_size = NUM_MBUFS_INCOMING_PER_QUEUE * DEFAULT_NUM_HW_PORTS;
+	struct rte_mempool *rx_pool;
+	char name[] = "rx_pool_NN";
+	int c, ret;
+
+	RTE_LCORE_FOREACH(c) {
+		snprintf(name + sizeof(name) - 3, 3, "%d", c);
+		rx_pool = rte_pktmbuf_pool_create_by_ops(name, rx_size,
+			RTE_MEMPOOL_CACHE_MAX_SIZE, sizeof(struct rx_buffer),
+			RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id(),
+			"ring_sp_sc");
+		if (!rx_pool) {
+			SPDK_ERRLOG("Failed to alloc rx_pool");
+			return -ENOMEM;
+		}
+
+		rte_mempool_obj_iter(rx_pool, rte_pktmbuf_init, 0);
+		rte_mempool_obj_iter(rx_pool, net_rxbuf_ctor, 0);
+		rx_pools[c] = rx_pool;
+
+		ret = lwip_register_pool_stats(rx_pool, name, parent,
+					procstat_ctx);
+		ASSERT(ret == 0);
+		SPDK_ERRLOG("Allocated rx pool[%d]: %p", c, rx_pool);
+	}
+
+	return 0;
+}
+
 static void
 spdk_lb_net_framework_init(void)
 {
 	const char* ip = getenv("LB_IP");
 	const char* port = getenv("LB_PORT");
+	const char* mount = getenv("LB_MOUNT");
+	int nr_cores = rte_lcore_count();
 
 	SPDK_ERRLOG("ip: %s port: %s\n", ip, port);
+
+	ASSERT(nr_cores > 0);
+	procstat_ctx = stats_create(mount);
+	if (!procstat_ctx) {
+		SPDK_ERRLOG("Failed to initialize stats\n");
+		return;
+	}
+
+	lwip_init(nr_cores, rte_socket_id(), lwip_pcb_private_size());
+	pools_dir = procstat_create_directory(procstat_ctx, NULL, "pools");
+	ASSERT(pools_dir);
+
+	ret = lwip_register_internal_pools_stats(pools_dir);
+	ASSERT(ret == 0);
 }
 
 static void
