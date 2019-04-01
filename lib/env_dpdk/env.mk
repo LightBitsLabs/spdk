@@ -54,7 +54,7 @@ else
 DPDK_LIB_EXT = .so
 endif
 
-DPDK_LIB_LIST = rte_eal rte_mempool rte_ring
+DPDK_LIB_LIST = rte_eal rte_mempool rte_ring rte_mbuf rte_ethdev rte_timer rte_cmdline
 
 # librte_mempool_ring was new added from DPDK 17.05. Link this library used for
 #   ring based mempool management API.
@@ -116,7 +116,8 @@ ENV_CFLAGS = $(DPDK_INC) -Wno-deprecated-declarations
 ENV_CXXFLAGS = $(ENV_CFLAGS)
 ENV_DPDK_FILE = $(call spdk_lib_list_to_static_libs,env_dpdk)
 ENV_LIBS = $(ENV_DPDK_FILE) $(DPDK_LIB)
-ENV_LINKER_ARGS = $(ENV_DPDK_FILE) -Wl,--whole-archive $(DPDK_LIB) -Wl,--no-whole-archive
+PROCSTAT_LIB := /users/sagi/workspace2/build/rel/procstat/29a58018d233/lib/libprocstat.a
+ENV_LINKER_ARGS = $(PROCSTAT_LIB) $(ENV_DPDK_FILE) -Wl,--whole-archive $(DPDK_LIB) -Wl,--no-whole-archive -llttng-ust -lfuse
 
 ifeq ($(CONFIG_IPSEC_MB),y)
 ENV_LINKER_ARGS += -lIPSec_MB -L$(IPSEC_MB_DIR)

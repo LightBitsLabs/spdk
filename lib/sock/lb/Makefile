@@ -71,6 +71,6 @@ LWIP_SRC := $(LWIP_DIR)/src/core/def.c \
 LIBNAME = sock_lb
 C_SRCS = lb.c $(LWIP_SRC)
 
+LOCAL_SYS_LIBS += -l$(PROCSTAT_LIB)/lib -l$(DPDK_DIR)/lib
 include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
 COMMON_CFLAGS += -I$(DPDK_DIR)/include/dpdk -I$(LWIP_DIR)/src/include -I$(LWIP_DIR)/src -I$(LWIP_DIR)/src/lb -I$(LWIP_DIR)/src/dpdk -I$(COMMON_DIR)/dpdk/include -I$(COMMON_DIR)/common/include -I$(PROCSTAT_DIR)/src
-LOCAL_SYS_LIBS += -l$(PROCSTAT_LIB)/lib -l$(DPDK_DIR)/lib
