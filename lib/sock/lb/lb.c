@@ -39,10 +39,16 @@
 
 #include <rte_common.h>
 #include <rte_eal.h>
+#include <rte_mbuf.h>
 #include "lwip/init.h"
 #include "network.h"
 #include "rx_buffer.h"
 #include "procstat.h"
+
+#include <rte_log.h>
+#include "lb/log.h"
+
+#define RTE_LOGTYPE_NET			RTE_LOGTYPE_USER1
 
 #define MAX_TMPBUF 1024
 #define PORTNUMLEN 32
@@ -61,6 +67,7 @@ struct spdk_lb_sock_group_impl {
 #define __lb_group_impl(group) (struct spdk_lb_sock_group_impl *)group
 
 struct procstat_context *procstat_ctx;
+struct rte_mempool *rx_pools[RTE_MAX_LCORE];
 
 static int
 spdk_lb_sock_getaddr(struct spdk_sock *_sock, char *saddr, int slen, uint16_t *sport,
@@ -220,9 +227,9 @@ int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
 		rte_mempool_obj_iter(rx_pool, net_rxbuf_ctor, 0);
 		rx_pools[c] = rx_pool;
 
-		ret = lwip_register_pool_stats(rx_pool, name, parent,
-					procstat_ctx);
-		ASSERT(ret == 0);
+		//ret = lwip_register_pool_stats(rx_pool, name, parent,
+		//			procstat_ctx);
+		//ASSERT(ret == 0);
 		SPDK_ERRLOG("Allocated rx pool[%d]: %p", c, rx_pool);
 	}
 
@@ -240,18 +247,18 @@ spdk_lb_net_framework_init(void)
 	SPDK_ERRLOG("ip: %s port: %s\n", ip, port);
 
 	ASSERT(nr_cores > 0);
-	procstat_ctx = stats_create(mount);
-	if (!procstat_ctx) {
-		SPDK_ERRLOG("Failed to initialize stats\n");
-		return;
-	}
+	//procstat_ctx = stats_create(mount);
+	//if (!procstat_ctx) {
+	//	SPDK_ERRLOG("Failed to initialize stats\n");
+	//	return;
+	//}
 
-	lwip_init(nr_cores, rte_socket_id(), lwip_pcb_private_size());
-	pools_dir = procstat_create_directory(procstat_ctx, NULL, "pools");
-	ASSERT(pools_dir);
+	lwip_init(nr_cores, rte_socket_id(), 0 /* ? */);
+	//pools_dir = procstat_create_directory(procstat_ctx, NULL, "pools");
+	//ASSERT(pools_dir);
 
-	ret = lwip_register_internal_pools_stats(pools_dir);
-	ASSERT(ret == 0);
+	//ret = lwip_register_internal_pools_stats(pools_dir);
+	//ASSERT(ret == 0);
 }
 
 static void
