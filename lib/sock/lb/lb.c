@@ -36,6 +36,7 @@
 #include "spdk/sock.h"
 #include "spdk_internal/sock.h"
 #include "spdk/net.h"
+#include "spdk/thread.h"
 
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -70,7 +71,7 @@ struct spdk_lb_sock_group_impl {
 #define __lb_group_impl(group) (struct spdk_lb_sock_group_impl *)group
 
 struct procstat_context *procstat_ctx;
-struct procstat_item *pools, *hwport;
+struct procstat_item *pools, *hwport, *net_qp;
 struct rte_mempool *rx_pools[RTE_MAX_LCORE];
 
 static int
@@ -207,6 +208,19 @@ static struct spdk_net_impl g_lb_net_impl = {
 
 SPDK_NET_IMPL_REGISTER(lb, &g_lb_net_impl);
 
+static int
+lbnet_poll(void *arg)
+{
+	struct net_device *dev = arg;
+	struct qp *qp = LCORE_NET_IFACE(dev).qp;
+	int ret = 0;
+
+	ret += poll_rx_queue(qp);
+	ret += poll_tx_queue(qp);
+
+	return 0;
+}
+
 #define NUM_MBUFS_INCOMING_PER_QUEUE	1024 * 4
 static int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
 		struct procstat_context *procstat_ctx)
@@ -272,6 +286,8 @@ static struct net_device *app_create_eth_dev(uint8_t nr_cores)
 			goto destroy_qps;
 		}
 
+		ASSERT(lwip_register_lcore_qp_stats(net_qp, dev, qp) == 0);
+
 		idx++;
 	}
 
@@ -316,6 +332,15 @@ static int app_config_net_iface(struct net_device *net_dev,
 	return start_net_device(net_dev, &l3_config);
 }
 
+static void register_pollers(struct net_device *dev)
+{
+	int c;
+
+	RTE_LCORE_FOREACH(c) {
+		spdk_poller_register(lbnet_poll, dev, 0);
+	}
+}
+
 static void
 spdk_lb_net_framework_init(void)
 {
@@ -338,8 +363,8 @@ spdk_lb_net_framework_init(void)
 	pools = procstat_create_directory(procstat_ctx, NULL, "pools");
 	ASSERT(pools);
 
-	ret = lwip_register_internal_pools_stats(pools);
-	ASSERT(ret == 0);
+	net_qp = procstat_create_directory(procstat_ctx, NULL, "net_qp");
+	ASSERT(net_qp);
 
 	spdk_sock_lb_alloc_netpools(pools, procstat_ctx);
 
@@ -351,6 +376,9 @@ spdk_lb_net_framework_init(void)
 	if (ret)
 		PANIC("Failed to configure lwip");
 
+	ret = lwip_register_internal_pools_stats(pools);
+	ASSERT(ret == 0);
+
 	hwport = procstat_create_directory(procstat_ctx, NULL, "hwport");
 	ASSERT(hwport);
 
@@ -359,6 +387,8 @@ spdk_lb_net_framework_init(void)
 
 	ret = lwip_register_hw_extended_stats(hwport, dev);
 	ASSERT(ret == 0);
+
+	register_pollers(dev);
 }
 
 static void

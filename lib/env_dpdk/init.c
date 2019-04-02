@@ -299,7 +299,7 @@ spdk_build_eal_cmdline(const struct spdk_env_opts *opts)
 	/* Lower default EAL loglevel to RTE_LOG_NOTICE - normal, but significant messages.
 	 * This can be overridden by specifying the same option in opts->env_context
 	 */
-	args = spdk_push_arg(args, &argcount, strdup("--log-level=lib.eal:6"));
+	args = spdk_push_arg(args, &argcount, strdup("--log-level=lib.eal:8"));
 	if (args == NULL) {
 		return -1;
 	}
