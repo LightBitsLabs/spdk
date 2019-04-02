@@ -69,7 +69,7 @@ LWIP_SRC := $(LWIP_DIR)/src/core/def.c \
 	$(LWIP_DIR)/src/lb/arch/sys_arch.c
 
 LIBNAME = sock_lb
-C_SRCS = lb.c $(LWIP_SRC)
+C_SRCS = lb.c stats.c $(LWIP_SRC)
 
 LOCAL_SYS_LIBS += -l$(PROCSTAT_LIB)/lib -l$(DPDK_DIR)/lib
 include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
