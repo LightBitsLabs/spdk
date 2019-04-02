@@ -583,7 +583,7 @@ static const struct virtio_dev_ops virtio_user_ops = {
 };
 
 int
-virtio_user_dev_init(struct virtio_dev *vdev, const char *name, const char *path,
+virtio_user_dev_init2(struct virtio_dev *vdev, const char *name, const char *path,
 		     uint32_t queue_size)
 {
 	struct virtio_user_dev *dev;

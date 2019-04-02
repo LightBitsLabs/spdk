@@ -562,7 +562,7 @@ virtqueue_req_add_iovs(struct virtqueue *vq, struct iovec *iovs, uint16_t iovcnt
 
 #define DESC_PER_CACHELINE (RTE_CACHE_LINE_SIZE / sizeof(struct vring_desc))
 uint16_t
-virtio_recv_pkts(struct virtqueue *vq, void **io, uint32_t *len, uint16_t nb_pkts)
+virtio_recv_pkts2(struct virtqueue *vq, void **io, uint32_t *len, uint16_t nb_pkts)
 {
 	uint16_t nb_used, num;
 

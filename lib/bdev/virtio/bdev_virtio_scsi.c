@@ -372,7 +372,7 @@ virtio_user_scsi_dev_create(const char *name, const char *path,
 	}
 
 	vdev = &svdev->vdev;
-	rc = virtio_user_dev_init(vdev, name, path, queue_size);
+	rc = virtio_user_dev_init2(vdev, name, path, queue_size);
 	if (rc != 0) {
 		SPDK_ERRLOG("Failed to create virito device %s: %s\n", name, path);
 		free(svdev);
@@ -804,7 +804,7 @@ bdev_virtio_poll(void *arg)
 	uint16_t i, cnt;
 	int rc;
 
-	cnt = virtio_recv_pkts(ch->vq, (void **)io, io_len, SPDK_COUNTOF(io));
+	cnt = virtio_recv_pkts2(ch->vq, (void **)io, io_len, SPDK_COUNTOF(io));
 	for (i = 0; i < cnt; ++i) {
 		if (spdk_unlikely(scan_ctx && io[i] == &scan_ctx->io_ctx)) {
 			if (svdev->removed) {
@@ -980,13 +980,13 @@ bdev_virtio_mgmt_poll(void *arg)
 		}
 	}
 
-	cnt = virtio_recv_pkts(ctrlq, io, io_len, SPDK_COUNTOF(io));
+	cnt = virtio_recv_pkts2(ctrlq, io, io_len, SPDK_COUNTOF(io));
 	total += cnt;
 	for (i = 0; i < cnt; ++i) {
 		bdev_virtio_tmf_cpl(io[i]);
 	}
 
-	cnt = virtio_recv_pkts(eventq, io, io_len, SPDK_COUNTOF(io));
+	cnt = virtio_recv_pkts2(eventq, io, io_len, SPDK_COUNTOF(io));
 	total += cnt;
 	for (i = 0; i < cnt; ++i) {
 		bdev_virtio_eventq_io_cpl(svdev, io[i]);

@@ -195,7 +195,7 @@ struct virtio_pci_ctx;
  */
 typedef int (*virtio_pci_create_cb)(struct virtio_pci_ctx *pci_ctx, void *ctx);
 
-uint16_t virtio_recv_pkts(struct virtqueue *vq, void **io, uint32_t *len, uint16_t io_cnt);
+uint16_t virtio_recv_pkts2(struct virtqueue *vq, void **io, uint32_t *len, uint16_t io_cnt);
 
 /**
  * Start a new request on the current vring head position and associate it
@@ -472,7 +472,7 @@ int virtio_pci_dev_attach(virtio_pci_create_cb create_cb, void *enum_ctx,
  * \param queue_size size of each of the queues
  * \return virtio device
  */
-int virtio_user_dev_init(struct virtio_dev *vdev, const char *name, const char *path,
+int virtio_user_dev_init2(struct virtio_dev *vdev, const char *name, const char *path,
 			 uint32_t queue_size);
 
 /**
