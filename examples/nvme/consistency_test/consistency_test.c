@@ -669,7 +669,7 @@ submit_single_io(struct perf_task *task)
 			task->is_read = true;
 
 			rc = spdk_nvme_ns_cmd_read_with_md(entry->u.nvme.ns, ns_ctx->u.nvme.qpair,
-							   (void*)task->phys_addr, NULL,
+							   task->buf, NULL,
 							   task->lba,
 							   entry->io_size_blocks, io_complete,
 							   task, entry->io_flags,
@@ -687,7 +687,7 @@ submit_single_io(struct perf_task *task)
 						   entry->io_size_blocks, true);
 
 			rc = spdk_nvme_ns_cmd_write_with_md(entry->u.nvme.ns, ns_ctx->u.nvme.qpair,
-							    (void*)task->phys_addr, NULL,
+							    task->buf, NULL,
 							    task->lba,
 							    entry->io_size_blocks, io_complete,
 							    task, entry->io_flags,
@@ -902,8 +902,8 @@ work_fn(void *arg)
 			check_io(ns_ctx);
 
 			if (!ns_ctx->is_draining && (ns_ctx->current_queue_depth == 0)) {
-				// submit_io(ns_ctx, 1);
-				submit_single_io(ns_ctx);
+				submit_io(ns_ctx, 1);
+				//submit_single_io(ns_ctx);
 			}
 
 			ns_ctx = ns_ctx->next;
