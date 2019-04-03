@@ -32,10 +32,12 @@ function usage {
 	echo "-h	--help 		:	print this message"
 	echo "-s	--server	:	default none"
 	echo "-n	--numa		:	default 0"
+	echo "-d	--max_n_dev	:	default all"
 }
 
 function parser {
 	numa=0
+	max_n_dev=64
 	while [ $1 ]; do
 		case $1 in
 			-h | --help)
@@ -44,6 +46,11 @@ function parser {
 				;;
 			-n | --numa)
 				numa=$2
+				if [ ! $2 ]; then usage; exit; fi
+				shift 2
+				;;
+			-d | --max_n_dev)
+				max_n_dev=$2
 				if [ ! $2 ]; then usage; exit; fi
 				shift 2
 				;;
@@ -77,4 +84,4 @@ for s in ${SOURCE_LIST[@]}; do
 done
 
 run_cmd chmod +x setup.sh
-run_cmd "./setup.sh config $numa"
+run_cmd "./setup.sh config $numa $max_n_dev"
