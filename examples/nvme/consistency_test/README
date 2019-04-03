@@ -17,19 +17,19 @@ Running consistency_test test on lightbox
     
 
 4. Setup
-    insmod lf.ko
-    # bind ssds 
-    ./setup.sh --lightbox
+	setup_remote.sh --server <server-name> --numa <numa-node> --max_n_dev <max number of ssds>
 
 5. Run the test.
 Examples:
-    1. Simple iops test(70-30):
+    1. Simple iops test(read only):
+        ./consistency_test -q 1 -s 4096 -w read -d 256 -c 1 -t 5
+    2. Simple iops test(70-30):
         ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -t 5
-    2. Use the fpga buffers with <p> ports (p=1 or p=2):
+    3. Use the fpga buffers with <p> ports (p=1 or p=2):
         ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -P <p> -t 5
-    3. Use the fpga nvme-completion turnaround:
+    4. Use the fpga nvme-completion turnaround:
         ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -C -t 5
-    4. 8 read commands test (one core, once device queue depth 8):
+    5. 8 read commands test (one core, once device queue depth 8):
         ./consistency_test -q 8 -Q -s 4096 -w write -d 256 -c 1 -r 'trtype:PCIe traddr:0000:09:00.0'
 
 6. Tips
