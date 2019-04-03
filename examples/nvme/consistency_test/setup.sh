@@ -218,12 +218,17 @@ function configure_linux_pci {
 	fi
 
 	# NVMe
+	n_devs=0
 	modprobe $driver_name || true
 	for bdf in $(iter_pci_class_code 01 08 02); do
 		blkname=''
 		get_nvme_name_from_bdf "$bdf" blkname
 		if pci_can_bind $bdf == "0" ; then
 			echo "Skipping un-whitelisted NVMe controller $blkname ($bdf)"
+			continue
+		fi
+		if [ $n_devs -ge $max_n_devs ]; then
+			echo "Skipping NVMe controller $blkname ($bdf) because $n_devs devices are binded"
 			continue
 		fi
 		if [ "$blkname" != "" ]; then
@@ -233,27 +238,28 @@ function configure_linux_pci {
 		fi
 		if [ "$mountpoints" = "0" ]; then
 			linux_bind_driver "$bdf" "$driver_name"
+			n_devs=$((n_devs + 1))
 		else
 			echo Active mountpoints on /dev/$blkname, so not binding PCI dev $bdf
 		fi
 	done
 
 	# IOAT
-	TMP=`mktemp`
-	#collect all the device_id info of ioat devices.
-	grep "PCI_DEVICE_ID_INTEL_IOAT" pci_ids.h \
-	| awk -F"x" '{print $2}' > $TMP
+	## TMP=`mktemp`
+	## #collect all the device_id info of ioat devices.
+	## grep "PCI_DEVICE_ID_INTEL_IOAT" pci_ids.h \
+	## | awk -F"x" '{print $2}' > $TMP
 
-	for dev_id in `cat $TMP`; do
-		for bdf in $(iter_pci_dev_id 8086 $dev_id); do
-			if pci_can_bind $bdf == "0" ; then
-				echo "Skipping un-whitelisted I/OAT device at $bdf"
-				continue
-			fi
-			linux_bind_driver "$bdf" "$driver_name"
-		done
-	done
-	rm $TMP
+	## for dev_id in `cat $TMP`; do
+	## 	for bdf in $(iter_pci_dev_id 8086 $dev_id); do
+	## 		if pci_can_bind $bdf == "0" ; then
+	## 			echo "Skipping un-whitelisted I/OAT device at $bdf"
+	## 			continue
+	## 		fi
+	## 		linux_bind_driver "$bdf" "$driver_name"
+	## 	done
+	## done
+	## rm $TMP
 
 	# virtio
 	TMP=`mktemp`
@@ -529,6 +535,7 @@ function reset_freebsd {
 
 mode=$1
 spdk_numa_node=$2
+max_n_devs=$3
 
 if [ -z "$mode" ]; then
 	mode="config"
