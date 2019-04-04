@@ -134,6 +134,7 @@ spdk_lb_sock_connect(const char *ip, int port)
 	while (!s->connected)
 		lbnet_poll(dev);
 
+	SPDK_ERRLOG("connected to %s:%d\n", ip, port);
 	return &s->base;
 }
 
@@ -183,18 +184,21 @@ struct lbnet_tcp_conn_ops spdk_lb_sock_ops = {
 static ssize_t
 spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
 {
+	SPDK_ERRLOG("called sock %p buf %p len %lu", _sock, buf, len);
 	return len;
 }
 
 static ssize_t
 spdk_lb_sock_readv(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 {
+	SPDK_ERRLOG("called sock %p buf %p iovcnt %d", _sock, iov, iovcnt);
 	return 0;
 }
 
 static ssize_t
 spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 {
+	SPDK_ERRLOG("called sock %p buf %p iovcnt %d", _sock, iov, iovcnt);
 	return 0;
 }
 
