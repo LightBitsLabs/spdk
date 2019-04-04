@@ -150,18 +150,34 @@ struct perf_task {
 #endif
 };
 
-struct worker_thread {
-	struct ns_worker_ctx	*ns_ctx;
-	struct worker_thread	*next;
-	unsigned		lcore;
-};
-
+#define LOG_QP_DEPTH 7
+#define QP_DEPTH (1 << LOG_QP_DEPTH)
 #define POLL_BUDGET 1
+
 struct worker_msg {
 	unsigned phase;
 	unsigned pattern;
 	void* buf;
 };
+
+struct test_ctx {
+	/* position: myself and my peer's position in the inbox\outbox */
+	unsigned outbox_dbell;	// last doorbell posted
+	unsigned *outbox_tail; 	// last msg polled by peer
+	unsigned *inbox_dbell; 	// last doorbell received
+	unsigned inbox_tail; 	// last received msg polled
+	struct worker_msg outbox[QP_DEPTH];
+	struct worker_msg *inbox;
+	struct spdk_nvme_qpair *qpair;
+};
+
+struct worker_thread {
+	struct ns_worker_ctx	*ns_ctx;
+	struct worker_thread	*next;
+	struct test_ctx			*test_ctx;
+	unsigned				lcore;
+};
+
 static int g_outstanding_commands;
 
 static bool g_latency_ssd_tracking_enable = false;
@@ -870,10 +886,22 @@ cleanup_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 }
 
 static int
-poll_worker_qp(struct worker_thread *worker, struct worker_msg *cqe, int budget)
+poll_worker_inbox(struct worker_thread *worker, struct worker_msg *cqe, unsigned budget)
 {
-	return 0;
+	unsigned phase, tail, n_polled = 0;
+	struct worker_msg *inbox = worker->test_ctx.inbox;
+	struct test_ctx *test_ctx = &worker->test_ctx;
 
+	while (n_polled < budget) {
+		tail = test_ctx->tail & (QP_DEPTH - 1); // tail % cq-depth
+		phase = (test_ctx->tail >> LOG_QP_DEPTH) & 0x1;
+		if (inbox[tail].phase == phase) // new cqe will change the phase
+			break;
+		memcpy(&inbox[tail], &cqe[n_polled], sizeof(struct worker_msg));
+		n_polled++;
+		test_ctx->tail++;
+	}
+	return n_polled;
 }
 
 static int
@@ -891,7 +919,7 @@ poll_fn(void *arg)
 		if (spdk_get_ticks() > tsc_end) {
 			break;
 		}
-		n_polled = poll_worker_qp(worker, cqe, POLL_BUDGET);
+		n_polled = poll_worker_inbox(worker, cqe, POLL_BUDGET);
 		if (!n_polled)
 			continue;
 	}
