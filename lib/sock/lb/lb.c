@@ -50,6 +50,7 @@
 #include <rte_log.h>
 #include "lb/log.h"
 #include "lb/err.h"
+#include "lb/tcp.h"
 #include "lb/lwip_stats.h"
 
 #define RTE_LOGTYPE_NET			RTE_LOGTYPE_USER1
@@ -58,8 +59,9 @@
 #define PORTNUMLEN 32
 
 struct spdk_lb_sock {
-	struct spdk_sock	base;
-	int			fd;
+	struct spdk_sock		base;
+	struct lbnet_tcp_connection	conn;
+	int				connected;
 };
 
 struct spdk_lb_sock_group_impl {
@@ -73,6 +75,10 @@ struct spdk_lb_sock_group_impl {
 struct procstat_context *procstat_ctx;
 struct procstat_item *pools, *hwport, *net_qp;
 struct rte_mempool *rx_pools[RTE_MAX_LCORE];
+struct net_device *dev;
+struct lbnet_tcp_conn_ops spdk_lb_sock_ops;
+
+static int lbnet_poll(void *arg);
 
 static int
 spdk_lb_sock_getaddr(struct spdk_sock *_sock, char *saddr, int slen, uint16_t *sport,
@@ -90,7 +96,45 @@ spdk_lb_sock_listen(const char *ip, int port)
 static struct spdk_sock *
 spdk_lb_sock_connect(const char *ip, int port)
 {
-	return NULL;
+	struct spdk_lb_sock *s;
+	char buf[MAX_TMPBUF];
+	char *p;
+	ip_addr_t addr;
+	int ret;
+
+	if (ip == NULL) {
+		return NULL;
+	}
+	if (ip[0] == '[') {
+		snprintf(buf, sizeof(buf), "%s", ip + 1);
+		p = strchr(buf, ']');
+		if (p != NULL) {
+			*p = '\0';
+		}
+		ip = (const char *) &buf[0];
+	}
+
+	if (!inet_aton(ip, (struct in_addr *)&addr)) {
+		SPDK_ERRLOG("Failed to parse ip: %s", ip);
+		return NULL;
+	}
+
+	s = calloc(1, sizeof(*s));
+	if (!s) {
+		SPDK_ERRLOG("alloc failed\n");
+		return NULL;
+	}
+
+	ret = lbnet_tcp_connect(&s->conn, &spdk_lb_sock_ops, &addr, port);
+	if (ret) {
+		SPDK_ERRLOG("lbnet_tcp_connect failed %d %s:%d\n", ret, ip, port);
+		return NULL;
+	}
+
+	while (!s->connected)
+		lbnet_poll(dev);
+
+	return &s->base;
 }
 
 static struct spdk_sock *
@@ -104,6 +148,37 @@ spdk_lb_sock_close(struct spdk_sock *_sock)
 {
 	return 0;
 }
+
+static int spdk_lb_sock_init(struct lbnet_tcp_connection *conn, struct lbnet_tcp_server *unused)
+{
+	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
+
+	SPDK_ERRLOG("called s %p connected", s);
+	s->connected = 1;
+	return 0;
+}
+
+static void spdk_lb_sock_destroy(struct lbnet_tcp_connection *conn)
+{
+	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
+
+	SPDK_ERRLOG("called s %p", s);
+}
+
+static int spdk_lb_sock_receive(struct lbnet_tcp_connection *conn, struct pbuf *p)
+{
+	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
+
+	SPDK_ERRLOG("called s %p pbuf %p", s, p);
+	return 0;
+}
+
+struct lbnet_tcp_conn_ops spdk_lb_sock_ops = {
+	.init = spdk_lb_sock_init,
+	.destroy = spdk_lb_sock_destroy,
+	.receive = spdk_lb_sock_receive,
+	.retransmit = NULL,
+};
 
 static ssize_t
 spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
@@ -208,8 +283,13 @@ static struct spdk_net_impl g_lb_net_impl = {
 
 SPDK_NET_IMPL_REGISTER(lb, &g_lb_net_impl);
 
-static int
-lbnet_poll(void *arg)
+static int timer_poll(void *arg)
+{
+	rte_timer_manage();
+	return 0;
+}
+
+static int lbnet_poll(void *arg)
 {
 	struct net_device *dev = arg;
 	struct qp *qp = LCORE_NET_IFACE(dev).qp;
@@ -287,7 +367,6 @@ static struct net_device *app_create_eth_dev(uint8_t nr_cores)
 		}
 
 		ASSERT(lwip_register_lcore_qp_stats(net_qp, dev, qp) == 0);
-
 		idx++;
 	}
 
@@ -310,6 +389,7 @@ static int app_config_net_iface(struct net_device *net_dev,
 	const char *ip, const char *netmask, const char *default_gw)
 {
 	struct l3_config l3_config;
+	int ret, c;
 
 	memset(&l3_config, 0, sizeof(l3_config));
 
@@ -329,7 +409,23 @@ static int app_config_net_iface(struct net_device *net_dev,
 		return -EINVAL;
 	}
 
-	return start_net_device(net_dev, &l3_config);
+	ret = start_net_device(net_dev, &l3_config);
+	if (ret) {
+		SPDK_ERRLOG("Failed to start net device\n");
+		return -EINVAL;
+	}
+
+	RTE_LCORE_FOREACH(c) {
+		struct qp *qp = dev->net_ifaces[c].qp;
+
+		ret = net_start_qp(qp);
+		if (ret) {
+			SPDK_ERRLOG("Failed to start net qp\n");
+			break;
+		}
+	}
+
+	return ret;
 }
 
 static void register_pollers(struct net_device *dev)
@@ -338,13 +434,13 @@ static void register_pollers(struct net_device *dev)
 
 	RTE_LCORE_FOREACH(c) {
 		spdk_poller_register(lbnet_poll, dev, 0);
+		spdk_poller_register(timer_poll, NULL, 1000);
 	}
 }
 
 static void
 spdk_lb_net_framework_init(void)
 {
-	struct net_device *dev;
 	const char* ip = getenv("LB_IP");
 	const char* nm = getenv("LB_NETMASK");
 	const char* gw = getenv("LB_GATEWAY");
