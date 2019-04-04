@@ -864,6 +864,30 @@ cleanup_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 }
 
 static int
+poll_fn(void *arg)
+{
+	uint64_t tsc_end;
+	struct worker_thread *worker = (struct worker_thread *)arg;
+	struct ns_worker_ctx *ns_ctx = NULL;
+
+	printf("Starting poller thread on core %u\n", worker->lcore);
+	tsc_end = spdk_get_ticks() + g_time_in_sec * g_tsc_rate;
+	while (1) {
+		if (spdk_get_ticks() > tsc_end) {
+			break;
+		}
+	}
+	ns_ctx = worker->ns_ctx;
+	while (ns_ctx != NULL) {
+		drain_io(ns_ctx);
+		cleanup_ns_worker_ctx(ns_ctx);
+		ns_ctx = ns_ctx->next;
+	}
+
+	printf("Ended poller thread on core %u\n", worker->lcore);
+	return 0;
+}
+static int
 work_fn(void *arg)
 {
 	uint64_t tsc_end;
@@ -1693,7 +1717,7 @@ int main(int argc, char **argv)
 	worker = g_workers;
 	while (worker != NULL) {
 		if (worker->lcore != master_core) {
-			spdk_env_thread_launch_pinned(worker->lcore, work_fn, worker);
+			spdk_env_thread_launch_pinned(worker->lcore, poll_fn, worker);
 		} else {
 			assert(master_worker == NULL);
 			master_worker = worker;
