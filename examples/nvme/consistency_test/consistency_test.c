@@ -156,6 +156,12 @@ struct worker_thread {
 	unsigned		lcore;
 };
 
+#define POLL_BUDGET 1
+struct worker_msg {
+	unsigned phase;
+	unsigned pattern;
+	void* buf;
+};
 static int g_outstanding_commands;
 
 static bool g_latency_ssd_tracking_enable = false;
@@ -864,11 +870,20 @@ cleanup_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 }
 
 static int
+poll_worker_qp(struct worker_thread *worker, struct worker_msg *cqe, int budget)
+{
+	return 0;
+
+}
+
+static int
 poll_fn(void *arg)
 {
 	uint64_t tsc_end;
 	struct worker_thread *worker = (struct worker_thread *)arg;
 	struct ns_worker_ctx *ns_ctx = NULL;
+	struct worker_msg cqe[POLL_BUDGET];
+	int n_polled;
 
 	printf("Starting poller thread on core %u\n", worker->lcore);
 	tsc_end = spdk_get_ticks() + g_time_in_sec * g_tsc_rate;
@@ -876,6 +891,9 @@ poll_fn(void *arg)
 		if (spdk_get_ticks() > tsc_end) {
 			break;
 		}
+		n_polled = poll_worker_qp(worker, cqe, POLL_BUDGET);
+		if (!n_polled)
+			continue;
 	}
 	ns_ctx = worker->ns_ctx;
 	while (ns_ctx != NULL) {
