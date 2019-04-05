@@ -37,6 +37,7 @@
 #include "spdk_internal/sock.h"
 #include "spdk/net.h"
 #include "spdk/thread.h"
+#include "spdk/nvmf_spec.h"
 
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -246,14 +247,14 @@ spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
 	size_t offset = 0;
 	void *b = buf;
 
-	if (list_empty(&s->incoming))
-		goto out;
-
 	while (len) {
-		struct spdk_lb_rx_buf *buf = list_first_entry(&s->incoming,
+		struct spdk_lb_rx_buf *buf = list_first_entry_or_null(&s->incoming,
 						struct spdk_lb_rx_buf, link);
 		struct pbuf *p;
 		size_t copy, poff;
+
+		if (!buf)
+			break;
 
 		poff = buf->off;
 		p = &buf->buf.buffer.pbuf;
@@ -292,8 +293,18 @@ out:
 static ssize_t
 spdk_lb_sock_readv(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 {
+	struct iovec *vec;
+	ssize_t recv = 0;
+	int i;
+
+	for (i = 0, vec = iov; i < iovcnt; i++, vec++) {
+		ssize_t len = spdk_lb_sock_recv(_sock, vec->iov_base, vec->iov_len);
+		if (len < 0)
+			break;
+		recv += len;
+	}
 	SPDK_ERRLOG("called sock %p buf %p iovcnt %d", _sock, iov, iovcnt);
-	return 0;
+	return recv;
 }
 
 static ssize_t spdk_lb_send(struct spdk_lb_sock *s, struct rte_mbuf *pkt)
