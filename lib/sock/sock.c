@@ -118,6 +118,13 @@ spdk_sock_close(struct spdk_sock **sock)
 	return rc;
 }
 
+void
+spdk_sock_poll_recv(struct spdk_sock *sock)
+{
+	if (sock->net_impl->poll_recv)
+		sock->net_impl->poll_recv(sock);
+}
+
 ssize_t
 spdk_sock_recv(struct spdk_sock *sock, void *buf, size_t len)
 {

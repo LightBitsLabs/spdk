@@ -115,6 +115,8 @@ int spdk_sock_close(struct spdk_sock **sock);
  */
 ssize_t spdk_sock_recv(struct spdk_sock *sock, void *buf, size_t len);
 
+void spdk_sock_poll_recv(struct spdk_sock *sock);
+
 /**
  * Write message to the given socket from the I/O vector array.
  *

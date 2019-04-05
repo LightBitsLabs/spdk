@@ -61,6 +61,7 @@
 struct spdk_lb_sock {
 	struct spdk_sock		base;
 	struct lbnet_tcp_connection	conn;
+	struct list_head		incoming;
 	int				connected;
 };
 
@@ -69,16 +70,53 @@ struct spdk_lb_sock_group_impl {
 	int				fd;
 };
 
+struct spdk_lb_rx_buf {
+        struct rx_buffer	buf;
+	struct list_head	link;
+	size_t			len;
+	size_t			off;
+	size_t			copied;
+} __aligned(RTE_MBUF_PRIV_ALIGN);
+
+struct spdk_lb_mbuf_priv {
+        struct tcp_pbuf_mbuf_private	tx_priv;
+	struct rte_mbuf_ext_shared_info	shinfo;
+} __aligned(RTE_MBUF_PRIV_ALIGN);
+
 #define __lb_sock(sock) (struct spdk_lb_sock *)sock
 #define __lb_group_impl(group) (struct spdk_lb_sock_group_impl *)group
 
 struct procstat_context *procstat_ctx;
 struct procstat_item *pools, *hwport, *net_qp;
 struct rte_mempool *rx_pools[RTE_MAX_LCORE];
+struct rte_mempool *tx_pools[RTE_MAX_LCORE];
 struct net_device *dev;
 struct lbnet_tcp_conn_ops spdk_lb_sock_ops;
 
 static int lbnet_poll(void *arg);
+
+static inline struct spdk_lb_mbuf_priv *
+pkt_to_priv(struct rte_mbuf *pkt)
+{
+	return (struct spdk_lb_mbuf_priv *)(pkt + 1);
+}
+
+static inline struct rte_mbuf_ext_shared_info *
+pkt_to_shinfo(struct rte_mbuf *pkt)
+{
+	return &pkt_to_priv(pkt)->shinfo;
+}
+
+static void spdk_lb_pkt_free_cb(void *addr, void *opaque)
+{
+	struct rte_mbuf_ext_shared_info *shinfo = opaque;
+	struct rte_mbuf *pkt = shinfo->fcb_opaque;
+
+	SPDK_ERRLOG("freeing shinfo %p pkt %p", shinfo, pkt);
+	rte_pktmbuf_free_seg(pkt);
+}
+
+
 
 static int
 spdk_lb_sock_getaddr(struct spdk_sock *_sock, char *saddr, int slen, uint16_t *sport,
@@ -124,6 +162,7 @@ spdk_lb_sock_connect(const char *ip, int port)
 		SPDK_ERRLOG("alloc failed\n");
 		return NULL;
 	}
+	INIT_LIST_HEAD(&s->incoming);
 
 	ret = lbnet_tcp_connect(&s->conn, &spdk_lb_sock_ops, &addr, port);
 	if (ret) {
@@ -154,7 +193,7 @@ static int spdk_lb_sock_init(struct lbnet_tcp_connection *conn, struct lbnet_tcp
 {
 	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
 
-	SPDK_ERRLOG("called s %p connected", s);
+	SPDK_ERRLOG("called s %p connected\n", s);
 	s->connected = 1;
 	return 0;
 }
@@ -166,11 +205,23 @@ static void spdk_lb_sock_destroy(struct lbnet_tcp_connection *conn)
 	SPDK_ERRLOG("called s %p", s);
 }
 
+static inline struct spdk_lb_rx_buf *pbuf_to_rxbuf(struct pbuf *pbuf)
+{
+	return (struct spdk_lb_rx_buf *)pbuf_to_rx_buffer(pbuf);
+}
+
 static int spdk_lb_sock_receive(struct lbnet_tcp_connection *conn, struct pbuf *p)
 {
 	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
+	struct spdk_lb_rx_buf *buf = pbuf_to_rxbuf(p);
 
-	SPDK_ERRLOG("called s %p pbuf %p", s, p);
+	pbuf_ref(p);
+	buf->len = p->tot_len;
+	buf->copied = 0;
+	buf->off = 0;
+	list_add_tail(&buf->link, &s->incoming);
+	SPDK_ERRLOG("called s %p pbuf %p len %d tot_len %d\n", s, p, p->len, p->tot_len);
+
 	return 0;
 }
 
@@ -181,11 +232,61 @@ struct lbnet_tcp_conn_ops spdk_lb_sock_ops = {
 	.retransmit = NULL,
 };
 
+static void
+spdk_lb_sock_poll_recv(struct spdk_sock *_sock)
+{
+	lbnet_poll(dev);
+}
+
 static ssize_t
 spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
 {
-	SPDK_ERRLOG("called sock %p buf %p len %lu", _sock, buf, len);
-	return len;
+	struct spdk_lb_sock *s = container_of(_sock, struct spdk_lb_sock, base);
+	ssize_t recv = 0;
+	size_t offset = 0;
+	void *b = buf;
+
+	if (list_empty(&s->incoming))
+		goto out;
+
+	while (len) {
+		struct spdk_lb_rx_buf *buf = list_first_entry(&s->incoming,
+						struct spdk_lb_rx_buf, link);
+		struct pbuf *p;
+		size_t copy, poff;
+
+		poff = buf->off;
+		p = &buf->buf.buffer.pbuf;
+
+		while (poff > p->len) {
+			poff -= p->len;
+			p = p->next;
+		}
+
+		copy = min_t(size_t, p->tot_len - poff, len);
+		rte_memcpy(b + offset, p->payload + poff, copy);
+
+		buf->copied += copy;
+		buf->off += copy;
+		len -= copy;
+		offset += copy;
+		recv += copy;
+
+		if (buf->copied == buf->len)
+			list_del(&buf->link);
+
+		if (p->len == poff + copy)
+			pbuf_free(p);
+	}
+
+	if (recv)
+		SPDK_ERRLOG("called sock %p buf %p len %lu recv %ld\n", _sock, buf, len, recv);
+out:
+	if (recv == 0)
+		recv = -EAGAIN;
+	if (recv < 0)
+		errno = -recv;
+	return recv;
 }
 
 static ssize_t
@@ -195,11 +296,62 @@ spdk_lb_sock_readv(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 	return 0;
 }
 
+static ssize_t spdk_lb_send(struct spdk_lb_sock *s, struct rte_mbuf *pkt)
+{
+	struct spdk_lb_mbuf_priv *priv = pkt_to_priv(pkt);
+	int bytes;
+
+	bytes = lbnet_tcp_network_send(&s->conn, &priv->tx_priv,
+			rte_pktmbuf_mtod(pkt, void *), pkt->buf_len, 0);
+	if (unlikely(bytes < 0))
+		return bytes;
+
+	if (!bytes) {
+		if (lbnet_tcp_has_unsent(&s->conn))
+			tcp_output(s->conn.pcb);
+	}
+
+	return bytes;
+}
+
 static ssize_t
 spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 {
-	SPDK_ERRLOG("called sock %p buf %p iovcnt %d", _sock, iov, iovcnt);
-	return 0;
+	struct spdk_lb_sock *s = container_of(_sock, struct spdk_lb_sock, base);
+	struct iovec *vec;
+	ssize_t sent = 0;
+	int i;
+
+	for (i = 0, vec = iov; i < iovcnt; i++, vec++) {
+		struct rte_mbuf_ext_shared_info *shinfo;
+		struct rte_mbuf *pkt;
+		ssize_t sbytes;
+
+		pkt = rte_pktmbuf_alloc(tx_pools[rte_lcore_id()]);
+		if (unlikely(!pkt))
+			return -ENOMEM;
+
+		shinfo = pkt_to_shinfo(pkt);
+		shinfo->free_cb = spdk_lb_pkt_free_cb;
+		shinfo->fcb_opaque = pkt;
+		rte_mbuf_ext_refcnt_set(shinfo, 1);
+
+		rte_pktmbuf_attach_extbuf(pkt, vec->iov_base,
+				rte_mem_virt2iova(vec->iov_base),
+				vec->iov_len, shinfo);
+
+		SPDK_ERRLOG("sending shinfo %p pkt %p bytes %d\n", shinfo, pkt, pkt->buf_len);
+		sbytes = spdk_lb_send(s, pkt);
+		if (sbytes <= 0)
+			break;
+		SPDK_ERRLOG("sent %ld bytes\n", sbytes);
+		sent += sbytes;
+		if (sbytes < pkt->buf_len)
+			break;
+	}
+	tcp_output(s->conn.pcb);
+	SPDK_ERRLOG("sent %ld bytes\n", sent);
+	return sent;
 }
 
 static int
@@ -271,6 +423,7 @@ static struct spdk_net_impl g_lb_net_impl = {
 	.accept		= spdk_lb_sock_accept,
 	.close		= spdk_lb_sock_close,
 	.recv		= spdk_lb_sock_recv,
+	.poll_recv	= spdk_lb_sock_poll_recv,
 	.readv		= spdk_lb_sock_readv,
 	.writev		= spdk_lb_sock_writev,
 	.set_recvlowat	= spdk_lb_sock_set_recvlowat,
@@ -305,19 +458,30 @@ static int lbnet_poll(void *arg)
 	return 0;
 }
 
+static void spdk_lb_rxbuf_ctor(struct rte_mempool *mp, void *opaque, void *obj, unsigned obj_idx)
+{
+	struct rte_mbuf *mbuf = (struct rte_mbuf *)obj;
+	unsigned priv_offset = (uint64_t)opaque;
+	struct spdk_lb_rx_buf *buf = (struct spdk_lb_rx_buf *)
+			(((char *)(mbuf + 1)) + priv_offset);
+
+	INIT_LIST_HEAD(&buf->link);
+}
+
 #define NUM_MBUFS_INCOMING_PER_QUEUE	1024 * 4
 static int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
 		struct procstat_context *procstat_ctx)
 {
 	unsigned rx_size = NUM_MBUFS_INCOMING_PER_QUEUE * DEFAULT_NUM_HW_PORTS;
-	struct rte_mempool *rx_pool;
+	struct rte_mempool *rx_pool, *tx_pool;
 	char name[] = "rx_pool_NN";
+	char name2[] = "tx_pool_NN";
 	int c, ret;
 
 	RTE_LCORE_FOREACH(c) {
 		snprintf(name + sizeof(name) - 3, 3, "%d", c);
 		rx_pool = rte_pktmbuf_pool_create_by_ops(name, rx_size,
-			RTE_MEMPOOL_CACHE_MAX_SIZE, sizeof(struct rx_buffer),
+			RTE_MEMPOOL_CACHE_MAX_SIZE, sizeof(struct spdk_lb_rx_buf),
 			RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id(),
 			"ring_sp_sc");
 		if (!rx_pool) {
@@ -327,13 +491,33 @@ static int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
 
 		rte_mempool_obj_iter(rx_pool, rte_pktmbuf_init, 0);
 		rte_mempool_obj_iter(rx_pool, net_rxbuf_ctor, 0);
+		rte_mempool_obj_iter(rx_pool, spdk_lb_rxbuf_ctor, 0);
 		rx_pools[c] = rx_pool;
-
 		ret = lwip_register_pool_stats(rx_pool, name, parent,
 					procstat_ctx);
 		ASSERT(ret == 0);
+		SPDK_ERRLOG("Allocated rx pool[%d]: %s %p\n", c, name, rx_pool);
 
-		SPDK_ERRLOG("Allocated rx pool[%d]: %p\n", c, rx_pool);
+
+		snprintf(name2 + sizeof(name2) - 3, 3, "%d", c);
+		tx_pool = rte_pktmbuf_pool_create_by_ops(name2, rx_size,
+			RTE_MEMPOOL_CACHE_MAX_SIZE,
+			sizeof(struct rte_mbuf_ext_shared_info),
+			RTE_PKTMBUF_HEADROOM, rte_socket_id(),
+			"ring_sp_sc");
+		if (!tx_pool) {
+			SPDK_ERRLOG("Failed to alloc tx_pool");
+			return -ENOMEM;
+		}
+
+		rte_mempool_obj_iter(tx_pool, rte_pktmbuf_init, 0);
+		rte_mempool_obj_iter(tx_pool, lbnet_application_txbuf_ctor,
+			(void *)offsetof(struct spdk_lb_mbuf_priv, tx_priv));
+		tx_pools[c] = tx_pool;
+		ret = lwip_register_pool_stats(tx_pool, name2, parent,
+					procstat_ctx);
+		ASSERT(ret == 0);
+		SPDK_ERRLOG("Allocated tx pool[%d]: %s %p\n", c, name2, tx_pool);
 	}
 
 	return 0;
@@ -437,7 +621,7 @@ static void register_pollers(struct net_device *dev)
 	int c;
 
 	RTE_LCORE_FOREACH(c) {
-		spdk_poller_register(lbnet_poll, dev, 0);
+		spdk_poller_register(lbnet_poll, dev, 1000);
 		spdk_poller_register(timer_poll, NULL, 1000);
 	}
 }

@@ -1587,6 +1587,8 @@ nvme_tcp_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_c
 		max_completions = spdk_min(max_completions, tqpair->num_entries);
 	}
 
+	spdk_sock_poll_recv(tqpair->sock);
+
 	reaped = 0;
 	do {
 		rc = nvme_tcp_read_pdu(tqpair, &reaped);
