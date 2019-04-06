@@ -683,6 +683,10 @@ spdk_lb_net_framework_init(void)
 	ret = lwip_register_hw_extended_stats(hwport, dev);
 	ASSERT(ret == 0);
 
+	/* This is unneeded but perf is not using a reactor so... */
+	while (!netif_is_link_up(&dev->netif))
+		rte_timer_manage();
+	printf("LINK IS UP\n");
 	register_pollers(dev);
 }
 
