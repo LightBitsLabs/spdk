@@ -38,8 +38,13 @@ include $(SPDK_ROOT_DIR)/mk/spdk.modules.mk
 
 C_SRCS = $(APP:%=%.c)
 
-SPDK_LIB_LIST = $(SOCK_MODULES_LIST)
-SPDK_LIB_LIST += nvme thread util log sock
+#SPDK_LIB_LIST = $(SOCK_MODULES_LIST)
+#SPDK_LIB_LIST += jsonrpc json rpc nvme thread util log sock event event_net
+
+SPDK_LIB_LIST = $(ALL_MODULES_LIST)
+SPDK_LIB_LIST += event_net
+SPDK_LIB_LIST += nvmf event log trace conf thread util bdev copy rpc jsonrpc json net sock
+SPDK_LIB_LIST += app_rpc log_rpc trace_rpc bdev_rpc
 
 ifeq ($(CONFIG_RDMA),y)
 SYS_LIBS += -libverbs -lrdmacm

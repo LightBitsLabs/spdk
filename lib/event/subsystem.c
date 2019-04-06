@@ -137,12 +137,14 @@ spdk_subsystem_init_next(int rc)
 		g_next_subsystem = TAILQ_NEXT(g_next_subsystem, tailq);
 	}
 
+	printf("g_next_subsystem %p\n", g_next_subsystem);
 	if (!g_next_subsystem) {
 		g_subsystems_initialized = true;
 		g_app_start_fn(g_app_start_arg);
 		return;
 	}
 
+	printf("g_next_subsystem %s\n", g_next_subsystem->name);
 	if (g_next_subsystem->init) {
 		g_next_subsystem->init();
 	} else {

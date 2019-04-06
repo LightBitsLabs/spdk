@@ -45,6 +45,7 @@
 #include "spdk/endian.h"
 #include "spdk/dif.h"
 #include "spdk/util.h"
+#include "spdk_internal/event.h"
 
 #if HAVE_LIBAIO
 #include <libaio.h>
@@ -1901,6 +1902,31 @@ nvme_poll_ctrlrs(void *arg)
 	return NULL;
 }
 
+static int
+spdk_app_opts_add_pci_addr(struct spdk_env_opts *opts, struct spdk_pci_addr **list, char *bdf)
+{
+	struct spdk_pci_addr *tmp = *list;
+	size_t i = opts->num_pci_addr;
+
+	tmp = realloc(tmp, sizeof(*tmp) * (i + 1));
+	if (tmp == NULL) {
+		printf("realloc error\n");
+		return -ENOMEM;
+	}
+
+	*list = tmp;
+	if (spdk_pci_addr_parse(*list + i, bdf) < 0) {
+		printf("Invalid address %s\n", bdf);
+		return -EINVAL;
+	}
+
+	opts->num_pci_addr++;
+	g_no_pci = false;
+	return 0;
+}
+
+
+
 int main(int argc, char **argv)
 {
 	int rc;
@@ -1908,6 +1934,7 @@ int main(int argc, char **argv)
 	unsigned master_core;
 	struct spdk_env_opts opts;
 	pthread_t thread_id = 0;
+	char *optarg = "0000:00:09.0";
 
 	rc = parse_args(argc, argv);
 	if (rc != 0) {
@@ -1924,15 +1951,24 @@ int main(int argc, char **argv)
 	if (g_dpdk_mem) {
 		opts.mem_size = g_dpdk_mem;
 	}
+
+	rc = spdk_app_opts_add_pci_addr(&opts, &opts.pci_whitelist, optarg);
+	if (rc != 0) {
+		printf("error adding %s rc %d\n", optarg, rc);
+		opts.pci_whitelist = NULL;
+	}
+
 	if (g_no_pci) {
 		opts.no_pci = g_no_pci;
 	}
+
 	if (spdk_env_init(&opts) < 0) {
 		fprintf(stderr, "Unable to initialize SPDK env\n");
 		rc = -1;
 		goto cleanup;
 	}
 
+	spdk_subsystem_init_next(0);
 	g_tsc_rate = spdk_get_ticks_hz();
 
 	if (register_workers() != 0) {
