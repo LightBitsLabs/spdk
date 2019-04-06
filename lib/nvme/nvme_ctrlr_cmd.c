@@ -114,6 +114,8 @@ nvme_ctrlr_cmd_identify(struct spdk_nvme_ctrlr *ctrlr, uint8_t cns, uint16_t cnt
 		return -ENOMEM;
 	}
 
+	printf("############### sending identify cns: %d cntid %d\n", cns, cntid);
+
 	cmd = &req->cmd;
 	cmd->opc = SPDK_NVME_OPC_IDENTIFY;
 	cmd->cdw10 = cns | ((uint32_t)cntid << 16);

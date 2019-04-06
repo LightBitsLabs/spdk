@@ -249,6 +249,8 @@ nvme_tcp_build_iovecs(struct iovec *iovec, int num_iovs, struct nvme_tcp_pdu *pd
 		goto end;
 	}
 
+	printf("PDU has data %d\n", pdu->data_len);
+
 	/* Padding */
 	if (pdu->padding_len > 0) {
 		hlen += pdu->padding_len;
@@ -280,7 +282,7 @@ end:
 	if (!pdu->writev_offset) {
 		assert(plen == pdu->hdr.common.plen);
 	}
-
+	printf("ppdu %p len %d hdr_plen %d\n", pdu, plen, pdu->hdr.common.plen);
 	return ctx->iovcnt;
 }
 
