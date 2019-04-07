@@ -250,6 +250,24 @@ struct nvme_async_event_request {
 	struct spdk_nvme_cpl		cpl;
 };
 
+struct spdk_nvme_test_plugin {
+	void *ctx;
+	/*
+	 * process_completion: handle a single qp completion.
+	 * return value:
+	 * 	true: Completiln handled successfully.
+	 *	false: Completion cannot be handled, keep polling
+	 */
+	bool (* process_completion) (void *ctx, struct spdk_nvme_cpl *cpl);
+	/*
+	 * process_submission: handle a single qp completion.
+	 * return value:
+	 * 	true: Completiln handled successfully.
+	 *	false: req cannot be handled (error)
+	 */
+	bool (* process_submission) (void *ctx, struct nvme_request *req);
+};
+
 struct spdk_nvme_qpair {
 	STAILQ_HEAD(, nvme_request)	free_req;
 	STAILQ_HEAD(, nvme_request)	queued_req;
@@ -285,6 +303,9 @@ struct spdk_nvme_qpair {
 	struct spdk_nvme_ctrlr_process	*active_proc;
 
 	void				*req_buf;
+
+	/* plugin for additional test operations */
+	struct spdk_nvme_test_plugin *test_plugin;
 };
 
 struct spdk_nvme_ns {

@@ -1149,6 +1149,22 @@ nvme_pcie_qpair_need_event(uint16_t event_idx, uint16_t new_idx, uint16_t old)
 	return (uint16_t)(new_idx - event_idx) <= (uint16_t)(new_idx - old);
 }
 
+static inline bool
+nvme_pcie_plugin_process_completion(struct spdk_nvme_qpair *qpair, struct spdk_nvme_cpl *cpl)
+{
+	if (!qpair->test_plugin->process_completion)
+		return true;
+	return qpair->test_plugin->process_completion(qpair->test_plugin->ctx, cpl);
+}
+
+static inline bool
+nvme_pcie_plugin_process_submission(struct spdk_nvme_qpair *qpair, struct nvme_request *req)
+{
+	if (!qpair->test_plugin->process_submission)
+		return true;
+	return qpair->test_plugin->process_submission(qpair->test_plugin->ctx, req);
+}
+
 static bool
 nvme_pcie_qpair_update_mmio_required(struct spdk_nvme_qpair *qpair, uint16_t value,
 				     volatile uint32_t *shadow_db,
@@ -1196,6 +1212,7 @@ nvme_pcie_qpair_submit_tracker(struct spdk_nvme_qpair *qpair, struct nvme_tracke
 		SPDK_ERRLOG("sq_tail is passing sq_head!\n");
 	}
 
+	nvme_pcie_plugin_process_submission(qpair, req);
 	spdk_wmb();
 	g_thread_mmio_ctrlr = pctrlr;
 	if (spdk_likely(nvme_pcie_qpair_update_mmio_required(qpair,
@@ -1993,7 +2010,6 @@ nvme_pcie_qpair_submit_request(struct spdk_nvme_qpair *qpair, struct nvme_reques
 	if (rc < 0) {
 		goto exit;
 	}
-
 	nvme_pcie_qpair_submit_tracker(qpair, tr);
 
 exit:
@@ -2081,6 +2097,9 @@ nvme_pcie_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_
 		if (cpl->status.p != pqpair->phase) {
 			break;
 		}
+		if (!nvme_pcie_plugin_process_completion(qpair, cpl))
+			/* Test Plugin cannot process the current completion - break */
+			break;
 #ifdef __PPC64__
 		/*
 		 * This memory barrier prevents reordering of:

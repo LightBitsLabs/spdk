@@ -412,6 +412,9 @@ nvme_qpair_init(struct spdk_nvme_qpair *qpair, uint16_t id,
 		STAILQ_INSERT_HEAD(&qpair->free_req, req, stailq);
 	}
 
+	qpair->test_plugin = spdk_zmalloc(sizeof(struct spdk_nvme_test_plugin),
+			0, NULL, spdk_env_get_socket_id(spdk_env_get_current_core()), 0);
+
 	return 0;
 }
 
