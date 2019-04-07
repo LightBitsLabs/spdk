@@ -240,11 +240,12 @@ spdk_lb_sock_poll_recv(struct spdk_sock *_sock)
 }
 
 static ssize_t
-spdk_lb_sock_recv(struct spdk_sock *_sock, void *buffer, size_t len)
+spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
 {
 	struct spdk_lb_sock *s = container_of(_sock, struct spdk_lb_sock, base);
 	ssize_t recv = 0;
 	size_t offset = 0;
+	void *b = buf;
 
 	while (len) {
 		struct spdk_lb_rx_buf *buf = list_first_entry_or_null(&s->incoming,
@@ -264,8 +265,8 @@ spdk_lb_sock_recv(struct spdk_sock *_sock, void *buffer, size_t len)
 		}
 
 		copy = min_t(size_t, p->tot_len - poff, len);
-		rte_memcpy(buffer + offset, p->payload + poff, copy);
-		printf("copied buf %p offset %lu bytes %lu\n", buffer, offset, copy);
+		rte_memcpy(b + offset, p->payload + poff, copy);
+
 		buf->copied += copy;
 		buf->off += copy;
 		len -= copy;
@@ -280,7 +281,8 @@ spdk_lb_sock_recv(struct spdk_sock *_sock, void *buffer, size_t len)
 	}
 
 	if (recv)
-		SPDK_ERRLOG("called sock %p buf %p len %lu recv %ld\n", _sock, buffer, len, recv);
+		SPDK_ERRLOG("called sock %p buf %p len %lu recv %ld\n", _sock, buf, len, recv);
+out:
 	if (recv == 0)
 		recv = -EAGAIN;
 	if (recv < 0)
@@ -331,7 +333,6 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 	ssize_t sent = 0;
 	int i;
 
-	SPDK_ERRLOG("called iovcnt %d\n", iovcnt);
 	for (i = 0, vec = iov; i < iovcnt; i++, vec++) {
 		struct rte_mbuf_ext_shared_info *shinfo;
 		struct rte_mbuf *pkt;
@@ -351,12 +352,7 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 				rte_mem_virt2iova(vec->iov_base),
 				vec->iov_len, shinfo);
 
-		SPDK_ERRLOG("sending shinfo %p pkt %p data %p bytes %d\n", shinfo, pkt, rte_pktmbuf_mtod(pkt, void *), pkt->buf_len);
-		if (pkt->buf_len == 72) {
-			struct spdk_nvme_cmd *cmd = vec->iov_base + 8;
-			printf("%s: cmd opc %d\n", __func__, cmd->opc);
-			printf("%s: cmd length %d\n", __func__, cmd->dptr.sgl1.unkeyed.length);
-		}
+		SPDK_ERRLOG("sending shinfo %p pkt %p bytes %d\n", shinfo, pkt, pkt->buf_len);
 		sbytes = spdk_lb_send(s, pkt);
 		if (sbytes <= 0)
 			break;

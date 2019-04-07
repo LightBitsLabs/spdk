@@ -391,12 +391,10 @@ nvme_tcp_qpair_process_send_queue(struct nvme_tcp_qpair *tqpair)
 	 * Build up a list of iovecs for the first few PDUs in the
 	 *  tqpair 's send_queue.
 	 */
-	printf("building pdus iovecs\n");
 	while (pdu != NULL && ((array_size - iovec_cnt) >= 3)) {
 		iovec_cnt += nvme_tcp_build_iovecs(&iovec_array[iovec_cnt], array_size - iovec_cnt,
 						   pdu, tqpair->host_hdgst_enable,
 						   tqpair->host_ddgst_enable, &mapped_length);
-		printf("pdu %p iovecs %d\n", pdu, iovec_cnt);
 		pdu = TAILQ_NEXT(pdu, tailq);
 	}
 
@@ -437,7 +435,6 @@ nvme_tcp_qpair_process_send_queue(struct nvme_tcp_qpair *tqpair)
 
 	while (!TAILQ_EMPTY(&completed_pdus_list)) {
 		pdu = TAILQ_FIRST(&completed_pdus_list);
-		printf("completing pdu %p\n", pdu);
 		TAILQ_REMOVE(&completed_pdus_list, pdu, tailq);
 		assert(pdu->cb_fn != NULL);
 		pdu->cb_fn(pdu->cb_arg);
@@ -479,7 +476,6 @@ nvme_tcp_qpair_write_pdu(struct nvme_tcp_qpair *tqpair,
 
 	pdu->cb_fn = cb_fn;
 	pdu->cb_arg = cb_arg;
-	printf("adding pdu %p to send_queue\n", pdu);
 	TAILQ_INSERT_TAIL(&tqpair->send_queue, pdu, tailq);
 	return 0;
 }
@@ -554,7 +550,6 @@ nvme_tcp_req_init(struct nvme_tcp_qpair *tqpair, struct nvme_request *req,
 	req->cmd.dptr.sgl1.unkeyed.type = SPDK_NVME_SGL_TYPE_TRANSPORT_DATA_BLOCK;
 	req->cmd.dptr.sgl1.unkeyed.subtype = SPDK_NVME_SGL_SUBTYPE_TRANSPORT;
 	req->cmd.dptr.sgl1.unkeyed.length = req->payload_size;
-	printf("%s: req length %d\n", __func__, req->payload_size);
 
 	if (nvme_payload_type(&req->payload) == NVME_PAYLOAD_TYPE_CONTIG) {
 		rc = nvme_tcp_build_contig_request(tqpair, tcp_req);
@@ -659,7 +654,6 @@ nvme_tcp_qpair_capsule_cmd_send(struct nvme_tcp_qpair *tqpair,
 
 end:
 	capsule_cmd->common.plen = plen;
-	printf("%s: calling nvme_tcp_qpair_write_pdu plen %d\n", __func__, plen);
 	return nvme_tcp_qpair_write_pdu(tqpair, pdu, nvme_tcp_qpair_cmd_send_complete, NULL);
 
 }
@@ -674,10 +668,6 @@ nvme_tcp_qpair_submit_request(struct spdk_nvme_qpair *qpair,
 	tqpair = nvme_tcp_qpair(qpair);
 	assert(tqpair != NULL);
 	assert(req != NULL);
-
-	printf("%s: cmd op %d\n", __func__, req->cmd.opc);
-	if (req->cmd.opc == 127)
-		printf("%s: cmd fctype %d\n", __func__, ((struct spdk_nvmf_fabric_connect_cmd *)&req->cmd)->fctype);
 
 	tcp_req = nvme_tcp_req_get(tqpair);
 	if (!tcp_req) {
@@ -827,7 +817,6 @@ nvme_tcp_qpair_send_h2c_term_req(struct nvme_tcp_qpair *tqpair, struct nvme_tcp_
 	/* Contain the header len of the wrong received pdu */
 	h2c_term_req->common.plen = h2c_term_req->common.hlen + copy_len;
 	nvme_tcp_qpair_set_recv_state(tqpair, NVME_TCP_PDU_RECV_STATE_ERROR);
-	printf("%s: calling nvme_tcp_qpair_write_pdu\n", __func__);
 	nvme_tcp_qpair_write_pdu(tqpair, rsp_pdu, nvme_tcp_qpair_send_h2c_term_req_complete, NULL);
 
 }
@@ -1301,7 +1290,6 @@ spdk_nvme_tcp_send_h2c_data(struct nvme_tcp_req *tcp_req)
 	SPDK_DEBUGLOG(SPDK_LOG_NVME, "h2c_data info: datao=%u, datal=%u, pdu_len=%u for tqpair=%p\n",
 		      h2c_data->datao, h2c_data->datal, h2c_data->common.plen, tqpair);
 
-	printf("%s: calling nvme_tcp_qpair_write_pdu\n", __func__);
 	nvme_tcp_qpair_write_pdu(tqpair, rsp_pdu, nvme_tcp_qpair_h2c_data_send_complete, tcp_req);
 }
 
@@ -1641,7 +1629,6 @@ nvme_tcp_qpair_icreq_send(struct nvme_tcp_qpair *tqpair)
 	ic_req->dgst.bits.hdgst_enable = tqpair->qpair.ctrlr->opts.header_digest;
 	ic_req->dgst.bits.ddgst_enable = tqpair->qpair.ctrlr->opts.data_digest;
 
-	printf("%s: calling nvme_tcp_qpair_write_pdu\n", __func__);
 	nvme_tcp_qpair_write_pdu(tqpair, pdu, nvme_tcp_send_icreq_complete, tqpair);
 
 	while (tqpair->state == NVME_TCP_QPAIR_STATE_INVALID) {
