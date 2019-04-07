@@ -342,6 +342,7 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 		if (unlikely(!pkt))
 			return -ENOMEM;
 
+		lbnet_application_txbuf_init(&pkt_to_priv(pkt)->tx_priv);
 		shinfo = pkt_to_shinfo(pkt);
 		shinfo->free_cb = spdk_lb_pkt_free_cb;
 		shinfo->fcb_opaque = pkt;
