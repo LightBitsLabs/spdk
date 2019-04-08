@@ -43,6 +43,7 @@
 #include "spdk/histogram_data.h"
 #include "spdk/endian.h"
 #include "spdk/crc16.h"
+#include "nvme_internal.h"
 
 #if HAVE_LIBAIO
 #include <libaio.h>

@@ -11,11 +11,13 @@ checkout_deps:
 	 $(Q)lb-build -d
 
 build: checkout_deps 
+	$(Q) cp lib/nvme/nvme_internal.h include/
 	./configure --with-dpdk=$(RTE_SDK)
 	$(Q)$(MAKE) MACHINE_CFLAGS=$(MACHINE_CFLAGS) CONFIG_DPDK_DIR=$(RTE_SDK)
 
 clean: checkout_deps 
 	$(Q)$(MAKE) CONFIG_DPDK_DIR=$(RTE_SDK) clean
+	$(Q) rm -f include/nvme_internal.h
 
 install: |checkout_deps
 	$(Q) mkdir -p $(SPDK_INSTALL_DIR)
