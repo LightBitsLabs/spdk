@@ -151,7 +151,14 @@ COMMON_CFLAGS += -I$(CONFIG_VPP_DIR)/include
 endif
 
 ifeq ($(CONFIG_RDMA),y)
-SYS_LIBS += -libverbs -lrdmacm
+RDMA_CORE := /users/sagi/workspace2/build/rel/rdma_core/857c8b177ae0
+SYS_LIBS += -L$(RDMA_CORE)/lib -lmnl -libverbs -lrdmacm
+# Mellanox - MLX5 HBA Userspace Library
+ifneq ("$(wildcard $(RDMA_CORE)/lib/libmlx5.*)","")
+SYS_LIBS += -lmlx5
+endif
+RDMA_HEADERS := /users/sagi/workspace2/build/rel/rdma_headers/857c8b177ae0
+COMMON_CFLAGS += -I$(RDMA_HEADERS)/include
 endif
 
 IPSEC_MB_DIR=$(SPDK_ROOT_DIR)/intel-ipsec-mb
