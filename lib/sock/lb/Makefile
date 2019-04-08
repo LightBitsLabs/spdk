@@ -34,7 +34,6 @@
 COMMON_DIR := $(abspath $(CURDIR)/../../../../common/src/user)
 LWIP_DIR := $(abspath $(CURDIR)/../../../../lwip)
 PROCSTAT_DIR := $(abspath $(CURDIR)/../../../../procstat)
-PROCSTAT_LIB := /users/sagi/workspace2/build/rel/procstat/29a58018d233
 DPDK_DIR := /users/sagi/workspace2/build/rel/dpdk-sdk/61310895fa41
 SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
@@ -71,6 +70,5 @@ LWIP_SRC := $(LWIP_DIR)/src/core/def.c \
 LIBNAME = sock_lb
 C_SRCS = lb.c stats.c $(LWIP_SRC)
 
-LOCAL_SYS_LIBS += -l$(PROCSTAT_LIB)/lib -l$(DPDK_DIR)/lib
 include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
 COMMON_CFLAGS += -I$(DPDK_DIR)/include/dpdk -I$(LWIP_DIR)/src/include -I$(LWIP_DIR)/src -I$(LWIP_DIR)/src/lb -I$(LWIP_DIR)/src/dpdk -I$(COMMON_DIR)/dpdk/include -I$(COMMON_DIR)/common/include -I$(PROCSTAT_DIR)/src
