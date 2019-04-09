@@ -226,6 +226,7 @@ static TAILQ_HEAD(, trid_entry) g_trid_list = TAILQ_HEAD_INITIALIZER(g_trid_list
 
 static int g_aio_optind; /* Index of first AIO filename in argv */
 
+/* Generic Methods */
 static void
 task_complete(struct perf_task *task);
 
@@ -1885,6 +1886,7 @@ connect_workers(void)
 	unsigned master_core;
 	master_core = spdk_env_get_current_core();
 	worker = g_workers;
+	slave_worker = master_worker = NULL;
 	while (worker != NULL) {
 		struct ns_worker_ctx *ns_ctx = worker->ns_ctx;
 		struct spdk_nvme_qpair *qpair = ns_ctx->u.nvme.qpair;
