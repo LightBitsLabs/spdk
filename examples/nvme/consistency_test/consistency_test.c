@@ -936,6 +936,27 @@ poll_worker_qp(struct test_ctx *ctx, struct worker_msg *cqe, unsigned budget)
 }
 
 static int
+init_ns(void)
+{
+	struct worker_thread *worker = NULL;
+	struct ns_worker_ctx *ns_ctx = NULL;
+	worker = g_workers;
+	while (worker != NULL) {
+		/* Allocate a queue pair for each namespace. */
+		ns_ctx = worker->ns_ctx;
+		while (ns_ctx != NULL) {
+			if (init_ns_worker_ctx(ns_ctx) != 0) {
+				printf("ERROR: init_ns_worker_ctx() failed\n");
+				return 1;
+			}
+			ns_ctx = ns_ctx->next;
+		}
+		worker = worker->next;
+	}
+	return 0;
+}
+
+static int
 poll_fn(void *arg)
 {
 	uint64_t tsc_end;
@@ -972,16 +993,6 @@ work_fn(void *arg)
 	struct ns_worker_ctx *ns_ctx = NULL;
 
 	printf("Starting thread on core %u\n", worker->lcore);
-
-	/* Allocate a queue pair for each namespace. */
-	ns_ctx = worker->ns_ctx;
-	while (ns_ctx != NULL) {
-		if (init_ns_worker_ctx(ns_ctx) != 0) {
-			printf("ERROR: init_ns_worker_ctx() failed\n");
-			return 1;
-		}
-		ns_ctx = ns_ctx->next;
-	}
 
 	tsc_end = spdk_get_ticks() + g_time_in_sec * g_tsc_rate;
 
@@ -1788,6 +1799,14 @@ int main(int argc, char **argv)
 
 	printf("Initialization complete. Launching workers.\n");
 
+	/* Init ns context per worker */
+	init_ns();
+	/*
+	 * Connect cores with each other
+	 * Must come after init_ns
+	 * TODO: currently supporting only 2 cores: master and slave
+	 */
+	connect_workers();
 	/* Launch all of the slave workers */
 	master_core = spdk_env_get_current_core();
 	master_worker = NULL;
