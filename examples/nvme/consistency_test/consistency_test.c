@@ -155,6 +155,9 @@ struct perf_task {
 #define QP_DEPTH (1 << LOG_QP_DEPTH)
 #define POLL_BUDGET 1
 
+int alloc_plugin(struct spdk_nvme_qpair *qpair);
+int connect_workers(void);
+
 struct worker_msg {
 	unsigned phase;
 	unsigned pattern;
@@ -865,6 +868,10 @@ init_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 			printf("ERROR: spdk_nvme_ctrlr_alloc_io_qpair failed\n");
 			return -1;
 		}
+		if (alloc_plugin(ns_ctx->u.nvme.qpair)) {
+			printf("ERROR: alloc_plugin failed\n");
+			return -1;
+		}
 	}
 
 	ns_ctx->io_limit_time = spdk_get_ticks();
@@ -886,22 +893,45 @@ cleanup_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 	}
 }
 
+static struct worker_msg *
+get_next_post_msg(struct test_ctx *ctx)
+{
+	struct worker_msg *msg;
+	unsigned head;
+	struct worker_msg *outbox = ctx->outbox;
+
+	if (ctx->outbox_dbell == (*ctx->outbox_tail + QP_DEPTH)) {
+		return NULL;
+	}
+	head = ctx->outbox_dbell & (QP_DEPTH - 1); // head % queue-depth
+	msg = &outbox[head];
+	msg->phase = !((ctx->outbox_dbell >> LOG_QP_DEPTH) & 0x1);
+	return msg;
+}
 static int
-poll_worker_inbox(struct worker_thread *worker, struct worker_msg *cqe, unsigned budget)
+post_worker_msg(struct test_ctx *ctx, struct worker_msg *msg)
+{
+	ctx->outbox_dbell++;
+	spdk_wmb();
+	return 0;
+}
+
+static int
+poll_worker_qp(struct test_ctx *ctx, struct worker_msg *cqe, unsigned budget)
 {
 	unsigned phase, tail, n_polled = 0;
-	struct worker_msg *inbox = worker->test_ctx.inbox;
-	struct test_ctx *test_ctx = &worker->test_ctx;
+	struct worker_msg *inbox = ctx->inbox;
 
 	while (n_polled < budget) {
-		tail = test_ctx->tail & (QP_DEPTH - 1); // tail % cq-depth
-		phase = (test_ctx->tail >> LOG_QP_DEPTH) & 0x1;
-		if (inbox[tail].phase == phase) // new cqe will change the phase
+		tail = ctx->inbox_tail & (QP_DEPTH - 1); // tail % queue-depth
+		phase = (ctx->inbox_tail >> LOG_QP_DEPTH) & 0x1;
+		if (inbox[tail].phase == phase) // new cqe will chang, &inbox[tail]e the phase
 			break;
 		memcpy(&inbox[tail], &cqe[n_polled], sizeof(struct worker_msg));
 		n_polled++;
-		test_ctx->tail++;
+		ctx->inbox_tail++;
 	}
+	spdk_wmb();
 	return n_polled;
 }
 
@@ -920,7 +950,7 @@ poll_fn(void *arg)
 		if (spdk_get_ticks() > tsc_end) {
 			break;
 		}
-		n_polled = poll_worker_inbox(worker, cqe, POLL_BUDGET);
+		n_polled = poll_worker_qp(worker->test_ctx, cqe, POLL_BUDGET);
 		if (!n_polled)
 			continue;
 	}
@@ -1790,4 +1820,60 @@ cleanup:
 	}
 
 	return rc;
+}
+
+/* Test plugin */
+static bool
+process_submission(void *ctx, struct nvme_request *req)
+{
+	return true;
+}
+
+static bool
+process_completion(void *ctx, struct spdk_nvme_cpl *cpl)
+{
+	return true;
+}
+
+int
+alloc_plugin(struct spdk_nvme_qpair *qpair)
+{
+	struct test_ctx *ctx;
+	printf("Allocating test plugin\n");
+	ctx = (struct test_ctx *)spdk_zmalloc(sizeof(struct test_ctx),
+			0, NULL, spdk_env_get_socket_id(spdk_env_get_current_core()), 0);
+
+	ctx->qpair = qpair;
+
+	qpair->test_plugin->ctx = (void *)ctx;
+	qpair->test_plugin->process_submission = &process_submission;
+	qpair->test_plugin->process_completion = &process_completion;
+	return 0;
+}
+/*
+ * Connect cores with each other
+ * TODO: currently supporting only 2 cores: master and slave
+ */
+int
+connect_workers(void)
+{
+	struct worker_thread *worker, *slave_worker, *master_worker;
+	unsigned master_core;
+	master_core = spdk_env_get_current_core();
+	worker = g_workers;
+	while (worker != NULL) {
+		struct ns_worker_ctx *ns_ctx = worker->ns_ctx;
+		struct spdk_nvme_qpair *qpair = ns_ctx->u.nvme.qpair;
+		worker->test_ctx = (struct test_ctx *)qpair->test_plugin->ctx;
+		if (worker->lcore == master_core)
+			master_worker = worker;
+		else
+			slave_worker = worker;
+		worker = worker->next;
+	}
+	/* connecting master outbox to slave inbox */
+	slave_worker->test_ctx->inbox = master_worker->test_ctx->outbox;
+	slave_worker->test_ctx->inbox_dbell = &master_worker->test_ctx->outbox_dbell;
+	master_worker->test_ctx->outbox_tail = &slave_worker->test_ctx->inbox_tail;
+	return 0;
 }
