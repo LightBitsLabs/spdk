@@ -1851,6 +1851,11 @@ process_submission(void *ctx, struct nvme_request *req)
 static bool
 process_completion(void *ctx, struct spdk_nvme_cpl *cpl)
 {
+	struct test_ctx *test_ctx = (struct test_ctx *)ctx;
+	struct worker_msg *msg = get_next_post_msg(test_ctx);
+	if (!msg)
+		return false;
+	post_worker_msg(test_ctx, msg);
 	return true;
 }
 
