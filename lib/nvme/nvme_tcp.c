@@ -79,7 +79,7 @@ struct nvme_tcp_qpair {
 
 	TAILQ_HEAD(, nvme_tcp_pdu)		send_queue;
 	struct nvme_tcp_pdu			recv_pdu;
-	struct nvme_tcp_pdu			send_pdu; /* only for error pdu and init pdu */
+	struct nvme_tcp_pdu			*send_pdu; /* only for error pdu and init pdu */
 	enum nvme_tcp_pdu_recv_state		recv_state;
 
 	struct nvme_tcp_req			*tcp_reqs;
@@ -201,7 +201,7 @@ nvme_tcp_parse_addr(struct sockaddr_storage *sa, int family, const char *addr, c
 static void
 nvme_tcp_free_reqs(struct nvme_tcp_qpair *tqpair)
 {
-	free(tqpair->tcp_reqs);
+	spdk_dma_free(tqpair->tcp_reqs);
 	tqpair->tcp_reqs = NULL;
 }
 
@@ -211,7 +211,7 @@ nvme_tcp_alloc_reqs(struct nvme_tcp_qpair *tqpair)
 	int i;
 	struct nvme_tcp_req	*tcp_req;
 
-	tqpair->tcp_reqs = calloc(tqpair->num_entries, sizeof(struct nvme_tcp_req));
+	tqpair->tcp_reqs = spdk_dma_zmalloc(tqpair->num_entries * sizeof(struct nvme_tcp_req), 64, NULL);
 	if (tqpair->tcp_reqs == NULL) {
 		SPDK_ERRLOG("Failed to allocate tcp_reqs\n");
 		goto fail;
@@ -249,6 +249,7 @@ nvme_tcp_qpair_destroy(struct spdk_nvme_qpair *qpair)
 	nvme_tcp_free_reqs(tqpair);
 
 	spdk_sock_close(&tqpair->sock);
+	spdk_dma_free(tqpair->send_pdu);
 	free(tqpair);
 
 	return 0;
@@ -792,7 +793,7 @@ nvme_tcp_qpair_send_h2c_term_req(struct nvme_tcp_qpair *tqpair, struct nvme_tcp_
 	uint32_t h2c_term_req_hdr_len = sizeof(*h2c_term_req);
 	uint8_t copy_len;
 
-	rsp_pdu = &tqpair->send_pdu;
+	rsp_pdu = tqpair->send_pdu;
 	memset(rsp_pdu, 0, sizeof(*rsp_pdu));
 	h2c_term_req = &rsp_pdu->hdr.term_req;
 	h2c_term_req->common.pdu_type = SPDK_NVME_TCP_PDU_TYPE_H2C_TERM_REQ;
@@ -1616,8 +1617,8 @@ nvme_tcp_qpair_icreq_send(struct nvme_tcp_qpair *tqpair)
 	struct spdk_nvme_tcp_ic_req *ic_req;
 	struct nvme_tcp_pdu *pdu;
 
-	pdu = &tqpair->send_pdu;
-	memset(&tqpair->send_pdu, 0, sizeof(tqpair->send_pdu));
+	pdu = tqpair->send_pdu;
+	memset(tqpair->send_pdu, 0, sizeof(*tqpair->send_pdu));
 	ic_req = &pdu->hdr.ic_req;
 
 	ic_req->common.pdu_type = SPDK_NVME_TCP_PDU_TYPE_IC_REQ;
@@ -1738,6 +1739,12 @@ nvme_tcp_ctrlr_create_qpair(struct spdk_nvme_ctrlr *ctrlr,
 
 	tqpair = calloc(1, sizeof(struct nvme_tcp_qpair));
 	if (!tqpair) {
+		SPDK_ERRLOG("failed to get create tqpair\n");
+		return NULL;
+	}
+
+	tqpair->send_pdu = spdk_dma_zmalloc(sizeof(struct nvme_tcp_pdu), 64, NULL);
+	if (!tqpair->send_pdu) {
 		SPDK_ERRLOG("failed to get create tqpair\n");
 		return NULL;
 	}
