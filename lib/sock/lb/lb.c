@@ -186,6 +186,10 @@ spdk_lb_sock_accept(struct spdk_sock *_sock)
 static int
 spdk_lb_sock_close(struct spdk_sock *_sock)
 {
+	struct spdk_lb_sock *s = container_of(_sock, struct spdk_lb_sock, base);
+
+	SPDK_ERRLOG("called sock %p closing\n", _sock);
+	tcp_close(s->conn.pcb);
 	return 0;
 }
 
@@ -203,6 +207,7 @@ static void spdk_lb_sock_destroy(struct lbnet_tcp_connection *conn)
 	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
 
 	SPDK_ERRLOG("called s %p\n", s);
+	lbnet_tcp_connection_close(conn);
 }
 
 static inline struct spdk_lb_rx_buf *pbuf_to_rxbuf(struct pbuf *pbuf)
@@ -483,7 +488,7 @@ static void spdk_lb_rxbuf_ctor(struct rte_mempool *mp, void *opaque, void *obj, 
 	INIT_LIST_HEAD(&buf->link);
 }
 
-#define NUM_MBUFS_INCOMING_PER_QUEUE	1024 * 4
+#define NUM_MBUFS_INCOMING_PER_QUEUE	1024 * 16
 static int spdk_sock_lb_alloc_netpools(struct procstat_item *parent,
 		struct procstat_context *procstat_ctx)
 {
