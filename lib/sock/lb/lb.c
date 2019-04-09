@@ -110,10 +110,9 @@ pkt_to_shinfo(struct rte_mbuf *pkt)
 
 static void spdk_lb_pkt_free_cb(void *addr, void *opaque)
 {
-	struct rte_mbuf_ext_shared_info *shinfo = opaque;
-	struct rte_mbuf *pkt = shinfo->fcb_opaque;
+	struct rte_mbuf *pkt = opaque;
 
-	SPDK_ERRLOG("freeing shinfo %p pkt %p", shinfo, pkt);
+	//SPDK_ERRLOG("freeing pkt %p\n", pkt);
 	rte_pktmbuf_free_seg(pkt);
 }
 
@@ -203,7 +202,7 @@ static void spdk_lb_sock_destroy(struct lbnet_tcp_connection *conn)
 {
 	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
 
-	SPDK_ERRLOG("called s %p", s);
+	SPDK_ERRLOG("called s %p\n", s);
 }
 
 static inline struct spdk_lb_rx_buf *pbuf_to_rxbuf(struct pbuf *pbuf)
@@ -216,12 +215,13 @@ static int spdk_lb_sock_receive(struct lbnet_tcp_connection *conn, struct pbuf *
 	struct spdk_lb_sock *s = container_of(conn, struct spdk_lb_sock, conn);
 	struct spdk_lb_rx_buf *buf = pbuf_to_rxbuf(p);
 
-	pbuf_ref(p);
+	//pbuf_ref(p);
 	buf->len = p->tot_len;
 	buf->copied = 0;
 	buf->off = 0;
 	list_add_tail(&buf->link, &s->incoming);
-	SPDK_ERRLOG("called s %p pbuf %p len %d tot_len %d\n", s, p, p->len, p->tot_len);
+	tcp_recved(conn->pcb, p->tot_len);
+	//SPDK_ERRLOG("called s %p pbuf %p len %d tot_len %d\n", s, p, p->len, p->tot_len);
 
 	return 0;
 }
@@ -246,8 +246,9 @@ spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
 	ssize_t recv = 0;
 	size_t offset = 0;
 	void *b = buf;
+	size_t l = len;
 
-	while (len) {
+	while (l) {
 		struct spdk_lb_rx_buf *buf = list_first_entry_or_null(&s->incoming,
 						struct spdk_lb_rx_buf, link);
 		struct pbuf *p;
@@ -264,25 +265,23 @@ spdk_lb_sock_recv(struct spdk_sock *_sock, void *buf, size_t len)
 			p = p->next;
 		}
 
-		copy = min_t(size_t, p->tot_len - poff, len);
+		copy = min_t(size_t, p->len - poff, l);
 		rte_memcpy(b + offset, p->payload + poff, copy);
 
 		buf->copied += copy;
 		buf->off += copy;
-		len -= copy;
+		l -= copy;
 		offset += copy;
 		recv += copy;
 
-		if (buf->copied == buf->len)
+		if (buf->copied == buf->len) {
 			list_del(&buf->link);
-
-		if (p->len == poff + copy)
-			pbuf_free(p);
+			pbuf_free(&buf->buf.buffer.pbuf);
+		}
 	}
 
-	if (recv)
-		SPDK_ERRLOG("called sock %p buf %p len %lu recv %ld\n", _sock, buf, len, recv);
-out:
+	//if (recv)
+		//SPDK_ERRLOG("called sock %p buf %p len %lu l %lu recv %ld\n", _sock, buf, len, l, recv);
 	if (recv == 0)
 		recv = -EAGAIN;
 	if (recv < 0)
@@ -303,7 +302,7 @@ spdk_lb_sock_readv(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 			break;
 		recv += len;
 	}
-	SPDK_ERRLOG("called sock %p buf %p iovcnt %d", _sock, iov, iovcnt);
+	//SPDK_ERRLOG("called sock %p buf %p iovcnt %d\n", _sock, iov, iovcnt);
 	return recv;
 }
 
@@ -333,14 +332,17 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 	ssize_t sent = 0;
 	int i;
 
+	//SPDK_ERRLOG("called sock %p with %d iovcnt core %d cnt %d\n", _sock, iovcnt, rte_lcore_id(), ++cnt);
 	for (i = 0, vec = iov; i < iovcnt; i++, vec++) {
 		struct rte_mbuf_ext_shared_info *shinfo;
 		struct rte_mbuf *pkt;
 		ssize_t sbytes;
 
 		pkt = rte_pktmbuf_alloc(tx_pools[rte_lcore_id()]);
-		if (unlikely(!pkt))
+		if (unlikely(!pkt)) {
+			printf("failed allocating pkt\n");
 			return -ENOMEM;
+		}
 
 		lbnet_application_txbuf_init(&pkt_to_priv(pkt)->tx_priv);
 		shinfo = pkt_to_shinfo(pkt);
@@ -349,20 +351,21 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 		rte_mbuf_ext_refcnt_set(shinfo, 1);
 
 		rte_pktmbuf_attach_extbuf(pkt, vec->iov_base,
-				rte_mem_virt2iova(vec->iov_base),
+				(rte_iova_t)vec->iov_base,
 				vec->iov_len, shinfo);
 
-		SPDK_ERRLOG("sending shinfo %p pkt %p bytes %d\n", shinfo, pkt, pkt->buf_len);
+		//SPDK_ERRLOG("sending shinfo %p pkt %p  addr %p bytes %d\n", shinfo, pkt, iov->iov_base, pkt->buf_len);
 		sbytes = spdk_lb_send(s, pkt);
+		rte_mbuf_ext_refcnt_update(shinfo, -1);
 		if (sbytes <= 0)
 			break;
-		SPDK_ERRLOG("sent %ld bytes\n", sbytes);
+		//SPDK_ERRLOG("sent %ld bytes\n", sbytes);
 		sent += sbytes;
 		if (sbytes < pkt->buf_len)
 			break;
 	}
 	tcp_output(s->conn.pcb);
-	SPDK_ERRLOG("sent %ld bytes\n", sent);
+	//SPDK_ERRLOG("sent %ld bytes\n", sent);
 	return sent;
 }
 
@@ -633,7 +636,7 @@ static void register_pollers(struct net_device *dev)
 	int c;
 
 	RTE_LCORE_FOREACH(c) {
-		spdk_poller_register(lbnet_poll, dev, 1000);
+		//spdk_poller_register(lbnet_poll, dev, 1000);
 		spdk_poller_register(timer_poll, NULL, 1000);
 	}
 }

@@ -163,6 +163,7 @@ struct worker_thread {
 	struct ns_worker_ctx	*ns_ctx;
 	struct worker_thread	*next;
 	unsigned		lcore;
+	bool			master;
 };
 
 struct ns_fn_table {
@@ -917,6 +918,7 @@ static void
 io_complete(void *ctx, const struct spdk_nvme_cpl *cpl)
 {
 	struct perf_task *task = ctx;
+	static int c = 0;
 
 	if (spdk_nvme_cpl_is_error(cpl)) {
 		fprintf(stderr, "%s completed with error (sct=%d, sc=%d)\n",
@@ -974,10 +976,25 @@ cleanup_ns_worker_ctx(struct ns_worker_ctx *ns_ctx)
 	ns_ctx->entry->fn_table->cleanup_ns_worker_ctx(ns_ctx);
 }
 
+static void
+nvme_poll_admins(void)
+{
+	struct ctrlr_entry *entry;
+
+
+	entry = g_controllers;
+	while (entry) {
+		if (entry->trtype != SPDK_NVME_TRANSPORT_PCIE) {
+			spdk_nvme_ctrlr_process_admin_completions(entry->ctrlr);
+		}
+		entry = entry->next;
+	}
+}
+
 static int
 work_fn(void *arg)
 {
-	uint64_t tsc_end;
+	uint64_t tsc_end, tsc_admin;
 	struct worker_thread *worker = (struct worker_thread *)arg;
 	struct ns_worker_ctx *ns_ctx = NULL;
 	uint32_t unfinished_ns_ctx;
@@ -995,6 +1012,7 @@ work_fn(void *arg)
 	}
 
 	tsc_end = spdk_get_ticks() + g_time_in_sec * g_tsc_rate;
+	tsc_admin = spdk_get_ticks() + 1 * g_tsc_rate;
 
 	/* Submit initial I/O for each namespace. */
 	ns_ctx = worker->ns_ctx;
@@ -1013,6 +1031,11 @@ work_fn(void *arg)
 		while (ns_ctx != NULL) {
 			check_io(ns_ctx);
 			ns_ctx = ns_ctx->next;
+		}
+
+		if (worker->master && spdk_get_ticks() > tsc_admin) {
+			nvme_poll_admins();
+			tsc_admin = spdk_get_ticks() + 1 * g_tsc_rate;
 		}
 
 		if (spdk_get_ticks() > tsc_end) {
@@ -1039,6 +1062,11 @@ work_fn(void *arg)
 				}
 			}
 			ns_ctx = ns_ctx->next;
+		}
+
+		if (worker->master && spdk_get_ticks() > tsc_admin) {
+			nvme_poll_admins();
+			tsc_admin = spdk_get_ticks() + 1 * g_tsc_rate;
 		}
 	} while (unfinished_ns_ctx > 0);
 
@@ -1933,8 +1961,7 @@ int main(int argc, char **argv)
 	struct worker_thread *worker, *master_worker;
 	unsigned master_core;
 	struct spdk_env_opts opts;
-	pthread_t thread_id = 0;
-	char *optarg = "0000:00:09.0";
+	char *optarg = "0000:02:00.1";
 
 	rc = parse_args(argc, argv);
 	if (rc != 0) {
@@ -1997,12 +2024,6 @@ int main(int argc, char **argv)
 		goto cleanup;
 	}
 
-	rc = pthread_create(&thread_id, NULL, &nvme_poll_ctrlrs, NULL);
-	if (rc != 0) {
-		fprintf(stderr, "Unable to spawn a thread to poll admin queues.\n");
-		goto cleanup;
-	}
-
 	if (associate_workers_with_ns() != 0) {
 		rc = -1;
 		goto cleanup;
@@ -2025,6 +2046,7 @@ int main(int argc, char **argv)
 	}
 
 	assert(master_worker != NULL);
+	master_worker->master = true;
 	rc = work_fn(master_worker);
 
 	spdk_env_thread_wait_all();
@@ -2032,9 +2054,6 @@ int main(int argc, char **argv)
 	print_stats();
 
 cleanup:
-	if (thread_id && pthread_cancel(thread_id) == 0) {
-		pthread_join(thread_id, NULL);
-	}
 	unregister_trids();
 	unregister_namespaces();
 	unregister_controllers();

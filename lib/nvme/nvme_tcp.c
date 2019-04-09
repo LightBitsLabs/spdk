@@ -154,6 +154,7 @@ nvme_tcp_req_get(struct nvme_tcp_qpair *tqpair)
 	tcp_req->in_capsule_data = false;
 	tcp_req->r2tl_remain = 0;
 	tcp_req->buf = NULL;
+	// wow... this is really bad...
 	memset(&tcp_req->send_pdu, 0, sizeof(tcp_req->send_pdu));
 	TAILQ_INSERT_TAIL(&tqpair->outstanding_reqs, tcp_req, link);
 
