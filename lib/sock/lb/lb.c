@@ -369,7 +369,7 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 		//SPDK_ERRLOG("sent %ld bytes\n", sbytes);
 		sent += sbytes;
 		if (sbytes < iov->iov_len) {
-			printf("sent %d pkt len %d\n", sbytes, iov->iov_len);
+			//printf("sent %d pkt len %d\n", sbytes, iov->iov_len);
 			break;
 		}
 	}
@@ -645,7 +645,7 @@ static void register_pollers(struct net_device *dev)
 	int c;
 
 	RTE_LCORE_FOREACH(c) {
-		//spdk_poller_register(lbnet_poll, dev, 1000);
+		spdk_poller_register(lbnet_poll, dev, 1000);
 		spdk_poller_register(timer_poll, NULL, 1000);
 	}
 }

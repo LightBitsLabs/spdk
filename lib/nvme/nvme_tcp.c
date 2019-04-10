@@ -1578,6 +1578,8 @@ nvme_tcp_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_c
 	uint32_t reaped;
 	int rc;
 
+	spdk_sock_poll_recv(tqpair->sock);
+
 	rc = nvme_tcp_qpair_process_send_queue(tqpair);
 	if (rc) {
 		return 0;
@@ -1588,8 +1590,6 @@ nvme_tcp_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_c
 	} else {
 		max_completions = spdk_min(max_completions, tqpair->num_entries);
 	}
-
-	spdk_sock_poll_recv(tqpair->sock);
 
 	reaped = 0;
 	do {
