@@ -110,10 +110,9 @@ pkt_to_shinfo(struct rte_mbuf *pkt)
 
 static void spdk_lb_pkt_free_cb(void *addr, void *opaque)
 {
-	struct rte_mbuf *pkt = opaque;
-
-	//SPDK_ERRLOG("freeing pkt %p\n", pkt);
-	rte_pktmbuf_free_seg(pkt);
+	//struct rte_mbuf *pkt = opaque;
+	//printf("freed pkt %p\n", pkt);
+	//rte_pktmbuf_free_seg(pkt);
 }
 
 
@@ -241,6 +240,10 @@ struct lbnet_tcp_conn_ops spdk_lb_sock_ops = {
 static void
 spdk_lb_sock_poll_recv(struct spdk_sock *_sock)
 {
+	struct spdk_lb_sock *s = container_of(_sock, struct spdk_lb_sock, base);
+
+	if (lbnet_tcp_has_unsent(&s->conn))
+		tcp_output(s->conn.pcb);
 	lbnet_poll(dev);
 }
 
@@ -346,7 +349,7 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 		pkt = rte_pktmbuf_alloc(tx_pools[rte_lcore_id()]);
 		if (unlikely(!pkt)) {
 			printf("failed allocating pkt\n");
-			return -ENOMEM;
+			return sent;
 		}
 
 		lbnet_application_txbuf_init(&pkt_to_priv(pkt)->tx_priv);
@@ -358,16 +361,17 @@ spdk_lb_sock_writev(struct spdk_sock *_sock, struct iovec *iov, int iovcnt)
 		rte_pktmbuf_attach_extbuf(pkt, vec->iov_base,
 				(rte_iova_t)vec->iov_base,
 				vec->iov_len, shinfo);
-
 		//SPDK_ERRLOG("sending shinfo %p pkt %p  addr %p bytes %d\n", shinfo, pkt, iov->iov_base, pkt->buf_len);
 		sbytes = spdk_lb_send(s, pkt);
-		rte_mbuf_ext_refcnt_update(shinfo, -1);
+		rte_pktmbuf_free_seg(pkt);
 		if (sbytes <= 0)
 			break;
 		//SPDK_ERRLOG("sent %ld bytes\n", sbytes);
 		sent += sbytes;
-		if (sbytes < pkt->buf_len)
+		if (sbytes < iov->iov_len) {
+			printf("sent %d pkt len %d\n", sbytes, iov->iov_len);
 			break;
+		}
 	}
 	tcp_output(s->conn.pcb);
 	//SPDK_ERRLOG("sent %ld bytes\n", sent);
