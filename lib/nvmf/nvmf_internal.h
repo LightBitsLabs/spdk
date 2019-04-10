@@ -115,8 +115,10 @@ struct spdk_nvmf_transport_poll_group {
 /* Maximum number of registrants supported per namespace */
 #define SPDK_NVMF_MAX_NUM_REGISTRANTS		16
 
+#define SPDK_NVMF_NUM_NS_CHANNELS	4
 struct spdk_nvmf_subsystem_pg_ns_info {
-	struct spdk_io_channel		*channel;
+	struct spdk_io_channel		*channel[SPDK_NVMF_NUM_NS_CHANNELS];
+	uint64_t			cur;
 	/* current reservation key, no reservation if the value is 0 */
 	uint64_t			crkey;
 	/* reservation type */

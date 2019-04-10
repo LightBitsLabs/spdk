@@ -54,6 +54,9 @@ SPDK_LOG_REGISTER_COMPONENT("nvmf", SPDK_LOG_NVMF)
 typedef void (*nvmf_qpair_disconnect_cpl)(void *ctx, int status);
 static void spdk_nvmf_tgt_destroy_poll_group(void *io_device, void *ctx_buf);
 
+static void
+ns_put_io_channels(struct spdk_nvmf_subsystem_pg_ns_info *ns_info);
+
 /* supplied to a single call to nvmf_qpair_disconnect */
 struct nvmf_qpair_disconnect_ctx {
 	struct spdk_nvmf_qpair *qpair;
@@ -162,12 +165,8 @@ spdk_nvmf_tgt_destroy_poll_group(void *io_device, void *ctx_buf)
 	for (sid = 0; sid < group->num_sgroups; sid++) {
 		sgroup = &group->sgroups[sid];
 
-		for (nsid = 0; nsid < sgroup->num_ns; nsid++) {
-			if (sgroup->ns_info[nsid].channel) {
-				spdk_put_io_channel(sgroup->ns_info[nsid].channel);
-				sgroup->ns_info[nsid].channel = NULL;
-			}
-		}
+		for (nsid = 0; nsid < sgroup->num_ns; nsid++)
+			ns_put_io_channels(&sgroup->ns_info[nsid]);
 
 		free(sgroup->ns_info);
 	}
@@ -859,6 +858,44 @@ spdk_nvmf_poll_group_add_transport(struct spdk_nvmf_poll_group *group,
 	return 0;
 }
 
+static void
+ns_put_io_channels(struct spdk_nvmf_subsystem_pg_ns_info *ns_info)
+{
+	int i;
+
+	for (i = 0; i < SPDK_NVMF_NUM_NS_CHANNELS; i++) {
+		if (!ns_info->channel[i])
+			continue;
+		spdk_put_io_channel(ns_info->channel[i]);
+		ns_info->channel[i] = NULL;
+	}
+}
+
+static int
+ns_get_io_channels(struct spdk_nvmf_subsystem_pg_ns_info *ns_info,
+		   struct spdk_nvmf_ns *ns)
+{
+	int i;
+
+	for (i = 0; i < SPDK_NVMF_NUM_NS_CHANNELS; i++) {
+		if (ns_info->channel[i])
+			continue;
+		ns_info->channel[i] = spdk_bdev_get_io_channel(ns->desc);
+		if (ns_info->channel[i] == NULL) {
+			SPDK_ERRLOG("Could not allocate I/O channel %d.\n", i);
+			goto fail;
+		}
+	}
+
+	return 0;
+fail:
+	while (i-- >= 0) {
+		spdk_put_io_channel(ns_info->channel[i]);
+		ns_info->channel[i] = NULL;
+	}
+	return -ENOMEM;
+}
+
 static int
 poll_group_update_subsystem(struct spdk_nvmf_poll_group *group,
 			    struct spdk_nvmf_subsystem *subsystem)
@@ -907,12 +944,8 @@ poll_group_update_subsystem(struct spdk_nvmf_poll_group *group,
 		void *buf;
 
 		/* Free the extra I/O channels */
-		for (i = new_num_ns; i < old_num_ns; i++) {
-			if (sgroup->ns_info[i].channel) {
-				spdk_put_io_channel(sgroup->ns_info[i].channel);
-				sgroup->ns_info[i].channel = NULL;
-			}
-		}
+		for (i = new_num_ns; i < old_num_ns; i++)
+			ns_put_io_channels(&sgroup->ns_info[i]);
 
 		/* Make the array smaller */
 		if (new_num_ns > 0) {
@@ -936,12 +969,10 @@ poll_group_update_subsystem(struct spdk_nvmf_poll_group *group,
 			/* Both NULL. Leave empty */
 		} else if (ns == NULL && sgroup->ns_info[i].channel != NULL) {
 			/* There was a channel here, but the namespace is gone. */
-			spdk_put_io_channel(sgroup->ns_info[i].channel);
-			sgroup->ns_info[i].channel = NULL;
-		} else if (ns != NULL && sgroup->ns_info[i].channel == NULL) {
+			ns_put_io_channels(&sgroup->ns_info[i]);
+		} else if (ns != NULL) {
 			/* A namespace appeared but there is no channel yet */
-			sgroup->ns_info[i].channel = spdk_bdev_get_io_channel(ns->desc);
-			if (sgroup->ns_info[i].channel == NULL) {
+			if (ns_get_io_channels(&sgroup->ns_info[i], ns)) {
 				SPDK_ERRLOG("Could not allocate I/O channel.\n");
 				return -ENOMEM;
 			}
@@ -1024,12 +1055,8 @@ _nvmf_poll_group_remove_subsystem_cb(void *ctx, int status)
 		goto fini;
 	}
 
-	for (nsid = 0; nsid < sgroup->num_ns; nsid++) {
-		if (sgroup->ns_info[nsid].channel) {
-			spdk_put_io_channel(sgroup->ns_info[nsid].channel);
-			sgroup->ns_info[nsid].channel = NULL;
-		}
-	}
+	for (nsid = 0; nsid < sgroup->num_ns; nsid++)
+		ns_put_io_channels(&sgroup->ns_info[nsid]);
 
 	sgroup->num_ns = 0;
 	free(sgroup->ns_info);

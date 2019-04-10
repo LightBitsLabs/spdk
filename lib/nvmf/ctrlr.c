@@ -2075,6 +2075,14 @@ spdk_nvmf_ctrlr_abort_aer(struct spdk_nvmf_ctrlr *ctrlr)
 	ctrlr->aer_req = NULL;
 }
 
+static struct spdk_io_channel *
+ns_get_cur_io_channel(struct spdk_nvmf_subsystem_pg_ns_info *ns_info)
+{
+	int cur = (ns_info->cur++) & (SPDK_NVMF_NUM_NS_CHANNELS - 1);
+
+	return ns_info->channel[cur];
+}
+
 int
 spdk_nvmf_ctrlr_process_io_cmd(struct spdk_nvmf_request *req)
 {
@@ -2116,7 +2124,7 @@ spdk_nvmf_ctrlr_process_io_cmd(struct spdk_nvmf_request *req)
 
 	bdev = ns->bdev;
 	desc = ns->desc;
-	ch = group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1].channel;
+	ch = ns_get_cur_io_channel(&group->sgroups[ctrlr->subsys->id].ns_info[nsid - 1]);
 	switch (cmd->opc) {
 	case SPDK_NVME_OPC_READ:
 		return spdk_nvmf_bdev_ctrlr_read_cmd(bdev, desc, ch, req);

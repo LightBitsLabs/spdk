@@ -966,7 +966,7 @@ spdk_get_io_channel(void *io_device)
 	}
 
 	TAILQ_FOREACH(ch, &thread->io_channels, tailq) {
-		if (ch->dev == dev) {
+		if (0 && ch->dev == dev) {
 			ch->ref++;
 
 			SPDK_DEBUGLOG(SPDK_LOG_THREAD, "Get io_channel %p for io_device %s (%p) on thread %s refcnt %u\n",
