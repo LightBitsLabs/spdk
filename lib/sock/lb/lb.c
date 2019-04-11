@@ -88,7 +88,7 @@ struct spdk_lb_mbuf_priv {
 #define __lb_group_impl(group) (struct spdk_lb_sock_group_impl *)group
 
 struct procstat_context *procstat_ctx;
-struct procstat_item *pools, *hwport, *net_qp;
+struct procstat_item *pools, *hwport;
 struct rte_mempool *rx_pools[RTE_MAX_LCORE];
 struct rte_mempool *tx_pools[RTE_MAX_LCORE];
 struct net_device *dev;
@@ -569,6 +569,8 @@ static struct net_device *app_create_eth_dev(uint8_t nr_cores)
 	}
 
 	RTE_LCORE_FOREACH(c) {
+		struct procstat_item *dir;
+		char lcore_stats_dir[200];
 		struct qp *qp;
 
 		dev->net_ifaces[c].rx_buffers = rx_pools[c];
@@ -578,7 +580,10 @@ static struct net_device *app_create_eth_dev(uint8_t nr_cores)
 			goto destroy_qps;
 		}
 
-		ASSERT(lwip_register_lcore_qp_stats(net_qp, dev, qp) == 0);
+		sprintf(lcore_stats_dir, "core-%d", c);
+		dir = procstat_create_directory(procstat_ctx, NULL, lcore_stats_dir);
+		ASSERT(dir);
+		ASSERT(lwip_register_lcore_qp_stats(dir, dev, qp) == 0);
 		idx++;
 	}
 
@@ -670,9 +675,6 @@ spdk_lb_net_framework_init(void)
 
 	pools = procstat_create_directory(procstat_ctx, NULL, "pools");
 	ASSERT(pools);
-
-	net_qp = procstat_create_directory(procstat_ctx, NULL, "net_qp");
-	ASSERT(net_qp);
 
 	spdk_sock_lb_alloc_netpools(pools, procstat_ctx);
 
