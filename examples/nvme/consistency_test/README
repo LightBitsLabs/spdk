@@ -18,22 +18,16 @@ Running consistency_test test on lightbox
 
 4. Setup
 	setup_remote.sh --server <server-name> --numa <numa-node> --max_n_dev <max number of ssds>
+	
+	Example:
+	./setup_remote.sh -s rack02-server69 --numa 0 --max_n_dev 1
 
 5. Run the test.
 Examples:
-    1. Simple iops test(read only):
-        ./consistency_test -q 1 -s 4096 -w read -d 256 -c 1 -t 5
-    2. Simple iops test(70-30):
-        ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -t 5
-    3. Use the fpga buffers with <p> ports (p=1 or p=2):
-        ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -P <p> -t 5
-    4. Use the fpga nvme-completion turnaround:
-        ./consistency_test -q 128 -s 4096 -w rw -d 256 -c f -M 70 -C -t 5
-    5. 8 read commands test (one core, once device queue depth 8):
-        ./consistency_test -q 8 -Q -s 4096 -w write -d 256 -c 1 -r 'trtype:PCIe traddr:0000:09:00.0'
+    1. Write test:
+        ./consistency_test -q 1 -s 4096 -w write -d 256 -c 1 -t 5
+    2. Read test on 2 cores (0 and 1)
+        ./consistency_test -q 1 -s 4096 -w read -d 256 -c 3 -t 5
 
 6. Tips
-    1. use less than all of the cpus (in this case: remove 11 disks):
-        for d in `lspci | grep Non | tail -11 | awk '{print "0000:" $1}'`; do echo "unbind $d"; echo $d > /sys/bus/pci/drivers/uio_pci_generic/unbind; done
-        # bring them back:
-        for d in `lspci | grep Non | tail -11 | awk '{print "0000:" $1}'`; do echo "bind $d"; echo $d > /sys/bus/pci/drivers/uio_pci_generic/bind; done
+    1. reset setup with ./setup reset (on the server)

@@ -1150,11 +1150,16 @@ nvme_pcie_qpair_need_event(uint16_t event_idx, uint16_t new_idx, uint16_t old)
 }
 
 static inline bool
-nvme_pcie_plugin_process_completion(struct spdk_nvme_qpair *qpair, struct spdk_nvme_cpl *cpl)
+nvme_pcie_plugin_process_completion(struct spdk_nvme_qpair *qpair, struct nvme_request *req)
 {
+	uint64_t lba = *(uint64_t *)&req->cmd.cdw10;
+	if (nvme_qpair_is_admin_queue(qpair))
+		return true;
+	if (lba < 8)
+		return true;
 	if (!qpair->test_plugin->process_completion)
 		return true;
-	return qpair->test_plugin->process_completion(qpair->test_plugin->ctx, cpl);
+	return qpair->test_plugin->process_completion(qpair->test_plugin->ctx, req);
 }
 
 static inline bool
@@ -2097,7 +2102,10 @@ nvme_pcie_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_
 		if (cpl->status.p != pqpair->phase) {
 			break;
 		}
-		if (!nvme_pcie_plugin_process_completion(qpair, cpl))
+
+		tr = &pqpair->tr[cpl->cid];
+
+		if (!nvme_pcie_plugin_process_completion(qpair, tr->req))
 			/* Test Plugin cannot process the current completion - break */
 			break;
 #ifdef __PPC64__
@@ -2109,10 +2117,13 @@ nvme_pcie_qpair_process_completions(struct spdk_nvme_qpair *qpair, uint32_t max_
 		spdk_mb();
 #endif
 
-		tr = &pqpair->tr[cpl->cid];
 		pqpair->sq_head = cpl->sqhd;
 
-		if (tr->active) {
+		if (tr->active) {			
+			//SPDK_ERRLOG("DEBUG %s: req->user_buffer: %p\n",
+			//		__func__, tr->req->user_buffer);
+			//SPDK_ERRLOG("DEBUG %s: req->user_buffer: %p\n",
+			//		__func__, tr->req->payload.u.contig + tr->req->payload_offset);
 			nvme_pcie_qpair_complete_tracker(qpair, tr, cpl, true);
 		} else {
 			SPDK_ERRLOG("cpl does not map to outstanding cmd\n");

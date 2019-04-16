@@ -45,10 +45,14 @@
 #include "spdk/crc16.h"
 #include "nvme_internal.h"
 
+#include "hash_table.h"
+
 #if HAVE_LIBAIO
 #include <libaio.h>
 #endif
 
+#define MAX_INFLIGHT_REQ 4096
+#define LBA_TABLE_SIZE 1024
 struct ctrlr_entry {
 	struct spdk_nvme_ctrlr			*ctrlr;
 	struct spdk_nvme_intel_rw_latency_page	*latency_page;
@@ -155,14 +159,11 @@ struct perf_task {
 #define QP_DEPTH (1 << LOG_QP_DEPTH)
 #define POLL_BUDGET 1
 
-int alloc_plugin(struct spdk_nvme_qpair *qpair);
-int connect_workers(void);
-
 struct worker_msg {
 	unsigned phase;
-	unsigned pattern;
-	void* buf;
-};
+	void* buff;
+	uint64_t lba;
+}_packed;
 
 struct test_ctx {
 	/* position: myself and my peer's position in the inbox\outbox */
@@ -173,6 +174,7 @@ struct test_ctx {
 	struct worker_msg outbox[QP_DEPTH];
 	struct worker_msg *inbox;
 	struct spdk_nvme_qpair *qpair;
+	struct spdk_hash_table	*lba_table;
 };
 
 struct worker_thread {
@@ -200,6 +202,7 @@ static uint32_t g_io_align = 0x200;
 static uint32_t g_io_size_bytes;
 static uint32_t g_max_io_md_size;
 static uint32_t g_max_io_size_blocks;
+static uint32_t g_max_size_in_ios = 128;
 static uint32_t g_metacfg_pract_flag;
 static uint32_t g_metacfg_prchk_flags;
 static int g_rw_percentage;
@@ -225,6 +228,16 @@ struct trid_entry {
 static TAILQ_HEAD(, trid_entry) g_trid_list = TAILQ_HEAD_INITIALIZER(g_trid_list);
 
 static int g_aio_optind; /* Index of first AIO filename in argv */
+
+int alloc_plugin(struct spdk_nvme_qpair *qpair);
+int connect_workers(void);
+int process_msg(struct worker_msg *msg);
+
+/* buffer allocation */
+struct spdk_mempool;
+static struct spdk_mempool *data_pool;
+static struct spdk_mempool *task_pool;
+
 
 /* Generic Methods */
 static void
@@ -286,6 +299,8 @@ register_ns(struct spdk_nvme_ctrlr *ctrlr, struct spdk_nvme_ns *ns)
 
 	entry->size_in_ios = spdk_nvme_ns_get_size(ns) /
 			     g_io_size_bytes;
+	if (entry->size_in_ios > g_max_size_in_ios)
+		entry->size_in_ios = g_max_size_in_ios;
 	entry->io_size_blocks = g_io_size_bytes / spdk_nvme_ns_get_sector_size(ns);
 
 	if (spdk_nvme_ns_get_flags(ns) & SPDK_NVME_NS_DPS_PI_SUPPORTED) {
@@ -646,6 +661,21 @@ static void io_complete(void *ctx, const struct spdk_nvme_cpl *completion);
 
 static __thread unsigned int seed = 0;
 
+static void write_pattern(struct perf_task *task)
+{
+	memset(task->buf, (int)task->lba, g_io_size_bytes);
+}
+
+static bool cmp_pattern(void *buf, uint64_t lba)
+{
+	char verify_buf[g_io_size_bytes];
+	int ret;
+
+	memset(verify_buf, (int)lba, g_io_size_bytes);
+	ret = memcmp(verify_buf, buf, g_io_size_bytes);
+	return ret;
+}
+
 static void
 submit_single_io(struct perf_task *task)
 {
@@ -681,6 +711,8 @@ submit_single_io(struct perf_task *task)
 	task->is_read = false;
 	task->submit_tsc = spdk_get_ticks();
 	task->lba = offset_in_ios * entry->io_size_blocks;
+
+	write_pattern(task);
 
 	if ((g_rw_percentage == 100) ||
 	    (g_rw_percentage != 0 && ((rand_r(&seed) % 100) < g_rw_percentage))) {
@@ -721,7 +753,6 @@ submit_single_io(struct perf_task *task)
 							    task->appmask, task->apptag);
 		}
 	}
-
 	if (rc != 0) {
 		fprintf(stderr, "starting I/O failed\n");
 	} else {
@@ -768,7 +799,8 @@ task_complete(struct perf_task *task)
 	 * the one just completed.
 	 */
 	if (ns_ctx->is_draining) {
-		spdk_dma_free(task->buf);
+		spdk_mempool_put(data_pool, task->buf);
+		spdk_mempool_put(task_pool, task);
 		free(task);
 	} else {
 		submit_single_io(task);
@@ -778,7 +810,10 @@ task_complete(struct perf_task *task)
 static void
 io_complete(void *ctx, const struct spdk_nvme_cpl *completion)
 {
-	task_complete((struct perf_task *)ctx);
+	struct perf_task *task = (struct perf_task *)ctx;
+	task_complete(task);
+	spdk_mempool_put(data_pool, task->buf);
+	spdk_mempool_put(task_pool, task);
 }
 
 static void
@@ -798,21 +833,23 @@ static void
 submit_io(struct ns_worker_ctx *ns_ctx, int queue_depth)
 {
 	struct perf_task *task;
-	uint32_t max_io_size_bytes;
+	//uint32_t max_io_size_bytes;
 
 	while (queue_depth-- > 0) {
 		task = calloc(1, sizeof(*task));
+		task = spdk_mempool_get(task_pool);
 		if (task == NULL) {
 			fprintf(stderr, "Out of memory allocating tasks\n");
 			exit(1);
 		}
 
-		/* maximum extended lba format size from all active
-		 * namespace, it's same with g_io_size_bytes for
-		 * namespace without metadata
-		 */
-		max_io_size_bytes = g_io_size_bytes + g_max_io_md_size * g_max_io_size_blocks;
-		task->buf = spdk_dma_zmalloc(max_io_size_bytes, g_io_align, &task->phys_addr);
+		///* maximum extended lba format size from all active
+		// * namespace, it's same with g_io_size_bytes for
+		// * namespace without metadata
+		// */
+		//max_io_size_bytes = g_io_size_bytes + g_max_io_md_size * g_max_io_size_blocks;
+		task->buf = spdk_mempool_get(data_pool);
+		task->phys_addr = spdk_vtophys(task->buf);
 		if (task->buf == NULL) {
 			fprintf(stderr, "task->buf spdk_dma_zmalloc failed\n");
 			exit(1);
@@ -902,16 +939,20 @@ get_next_post_msg(struct test_ctx *ctx)
 	struct worker_msg *outbox = ctx->outbox;
 
 	if (ctx->outbox_dbell == (*ctx->outbox_tail + QP_DEPTH)) {
+		//printf("DEBUG %s: outbox_dbell = %u outbox_tail = %u\n", __func__, ctx->outbox_dbell, *ctx->outbox_tail);
 		return NULL;
 	}
 	head = ctx->outbox_dbell & (QP_DEPTH - 1); // head % queue-depth
 	msg = &outbox[head];
-	msg->phase = !((ctx->outbox_dbell >> LOG_QP_DEPTH) & 0x1);
 	return msg;
 }
 static int
 post_worker_msg(struct test_ctx *ctx, struct worker_msg *msg)
 {
+	spdk_wmb();
+	//printf("DEBUG %s msg->buff: %p\n", __func__, msg->buff);
+	//printf("DEBUG %s msg: %p\n", __func__, msg);
+	msg->phase = !(msg->phase);
 	ctx->outbox_dbell++;
 	spdk_wmb();
 	return 0;
@@ -928,7 +969,14 @@ poll_worker_qp(struct test_ctx *ctx, struct worker_msg *cqe, unsigned budget)
 		phase = (ctx->inbox_tail >> LOG_QP_DEPTH) & 0x1;
 		if (inbox[tail].phase == phase) // new cqe will chang, &inbox[tail]e the phase
 			break;
-		memcpy(&inbox[tail], &cqe[n_polled], sizeof(struct worker_msg));
+		memcpy(&cqe[n_polled], &inbox[tail], sizeof(struct worker_msg));
+		//printf("DEBUG %s tail=%d, phase=%d inbox phase = %d\n", __func__, tail, phase, inbox[tail].phase);
+		//printf("DEBUG %s msg: %p\n", __func__, &inbox[tail]);
+		//printf("DEBUG %s msg= %016lx %016lx\n", __func__, *(uint64_t *)(&inbox[tail]), *(8 + (uint64_t *)(&inbox[tail])));
+		//
+		//printf("DEBUG %s msg->buf: %p\n", __func__, inbox[tail].buff);
+		//printf("DEBUG %s msg: %p\n", __func__, &cqe[n_polled]);
+		//printf("DEBUG %s msg->buf: %p\n", __func__, cqe[n_polled].buff);
 		n_polled++;
 		ctx->inbox_tail++;
 	}
@@ -963,7 +1011,8 @@ poll_fn(void *arg)
 	uint64_t tsc_end;
 	struct worker_thread *worker = (struct worker_thread *)arg;
 	struct ns_worker_ctx *ns_ctx = NULL;
-	struct worker_msg cqe[POLL_BUDGET];
+	//struct worker_msg msg[POLL_BUDGET];
+	struct worker_msg msg;
 	int n_polled;
 
 	printf("Starting poller thread on core %u\n", worker->lcore);
@@ -972,9 +1021,13 @@ poll_fn(void *arg)
 		if (spdk_get_ticks() > tsc_end) {
 			break;
 		}
-		n_polled = poll_worker_qp(worker->test_ctx, cqe, POLL_BUDGET);
+		n_polled = poll_worker_qp(worker->test_ctx, &msg, 1);
 		if (!n_polled)
 			continue;
+		if (process_msg(&msg)) {
+			printf("ERROR: process_msg failed\n");
+			break;
+		}
 	}
 	ns_ctx = worker->ns_ctx;
 	while (ns_ctx != NULL) {
@@ -1642,6 +1695,38 @@ attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
 	register_ctrlr(ctrlr);
 }
 
+static int 
+alloc_pools(void)
+{
+	uint32_t max_io_size_bytes;
+
+	/* maximum extended lba format size from all active
+	 * namespace, it's same with g_io_size_bytes for
+	 * namespace without metadata
+	 */
+	max_io_size_bytes = g_io_size_bytes + g_max_io_md_size * g_max_io_size_blocks;
+
+
+	printf("Allocating %d buffers. size = %u\n", MAX_INFLIGHT_REQ, max_io_size_bytes);
+	data_pool = spdk_mempool_create("data-pool", MAX_INFLIGHT_REQ, max_io_size_bytes,
+			SPDK_MEMPOOL_DEFAULT_CACHE_SIZE,
+			spdk_env_get_socket_id(spdk_env_get_current_core()));
+	task_pool = spdk_mempool_create("task-pool", MAX_INFLIGHT_REQ, sizeof(struct perf_task),
+			SPDK_MEMPOOL_DEFAULT_CACHE_SIZE,
+			spdk_env_get_socket_id(spdk_env_get_current_core()));
+
+	return 0;
+}
+
+static void 
+free_pools(void)
+{
+	printf("Freeing mempools\n");
+	spdk_mempool_free(data_pool);
+	spdk_mempool_free(task_pool);
+
+}
+
 static int
 register_controllers(void)
 {
@@ -1784,6 +1869,11 @@ int main(int argc, char **argv)
 		goto cleanup;
 	}
 
+	if (alloc_pools() != 0) {
+		rc = -1;
+		goto cleanup;
+	}
+
 	if (g_warn) {
 		printf("WARNING: Some requested NVMe devices were skipped\n");
 	}
@@ -1834,6 +1924,7 @@ cleanup:
 	unregister_namespaces();
 	unregister_controllers();
 	unregister_workers();
+	free_pools();
 
 	if (rc != 0) {
 		fprintf(stderr, "%s: errors occured\n", argv[0]);
@@ -1841,34 +1932,72 @@ cleanup:
 
 	return rc;
 }
-
 /* Test plugin */
 static bool
 process_submission(void *ctx, struct nvme_request *req)
 {
+	//uint16_t cid = req->cmd.cid;
+	//struct test_ctx *test_ctx = (struct test_ctx *)ctx;
+
+	//spdk_hash_table_put_obj(test_ctx->lba_table, (void *)req, (uint64_t)cid);
+	req->user_buffer = req->payload.u.contig + req->payload_offset;
 	return true;
 }
 
 static bool
-process_completion(void *ctx, struct spdk_nvme_cpl *cpl)
+// process_completion(void *ctx, struct spdk_nvme_cpl *cpl)
+process_completion(void *ctx, struct nvme_request *req)
 {
 	struct test_ctx *test_ctx = (struct test_ctx *)ctx;
 	struct worker_msg *msg = get_next_post_msg(test_ctx);
+	uint64_t lba;
+
+	assert(req);
+	if (req->cmd.opc != SPDK_NVME_OPC_READ)
+		return true;
+	if (req->payload.type != NVME_PAYLOAD_TYPE_CONTIG)
+		return true;
 	if (!msg)
 		return false;
+	lba = *(uint64_t *)&req->cmd.cdw10;
+	msg->lba = lba; 
+	msg->buff = req->payload.u.contig + req->payload_offset;
+	// printf("DEBUG %s msg: %p\n", __func__, msg);
+	// printf("DEBUG %s msg->lba: %lx\n", __func__, msg->lba);
+	// printf("DEBUG %s msg->buff: %p\n", __func__, msg->buff);
+	// printf("DEBUG %s req->user_buffer: %p\n", __func__, req->user_buffer);
+			
 	post_worker_msg(test_ctx, msg);
 	return true;
+
+}
+
+#define BLOCK_SIZE 4096
+#define LBA_SIZE 512
+int 
+process_msg(struct worker_msg *msg)
+{
+	if (!cmp_pattern(msg->buff, msg->lba)) {
+		printf("lba %8lx mismatch\n", msg->lba);
+		exit(1);
+	}
+	return 0;
 }
 
 int
 alloc_plugin(struct spdk_nvme_qpair *qpair)
 {
 	struct test_ctx *ctx;
+	
+	if (spdk_env_get_core_count() < 2)
+		return 0;
 	printf("Allocating test plugin\n");
 	ctx = (struct test_ctx *)spdk_zmalloc(sizeof(struct test_ctx),
 			0, NULL, spdk_env_get_socket_id(spdk_env_get_current_core()), 0);
 
 	ctx->qpair = qpair;
+	ctx->lba_table = spdk_hash_table_construct(spdk_env_get_socket_id(spdk_env_get_current_core()), LBA_TABLE_SIZE);
+	assert(ctx->lba_table);
 
 	qpair->test_plugin->ctx = (void *)ctx;
 	qpair->test_plugin->process_submission = &process_submission;
@@ -1884,6 +2013,9 @@ connect_workers(void)
 {
 	struct worker_thread *worker, *slave_worker, *master_worker;
 	unsigned master_core;
+	
+	if (spdk_env_get_core_count() < 2)
+		return 0;
 	master_core = spdk_env_get_current_core();
 	worker = g_workers;
 	slave_worker = master_worker = NULL;

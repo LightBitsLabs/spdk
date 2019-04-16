@@ -6,6 +6,7 @@ SOURCE_LIST+=("consistency_test")
 SOURCE_LIST+=("setup.sh")
 SOURCE_LIST+=("README")
 SOURCE_LIST+=("$WORKSPACE_TOP/spdk/include/spdk/pci_ids.h")
+#SOURCE_LIST+=("write_pattern.sh")
 
 function run_cmd {
 	echo "$@"
@@ -84,4 +85,6 @@ for s in ${SOURCE_LIST[@]}; do
 done
 
 run_cmd chmod +x setup.sh
+#run_cmd chmod +x write_pattern.sh
+#run_cmd "./write_pattern.sh"
 run_cmd "./setup.sh config $numa $max_n_dev"

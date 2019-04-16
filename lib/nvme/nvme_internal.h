@@ -258,7 +258,7 @@ struct spdk_nvme_test_plugin {
 	 * 	true: Completiln handled successfully.
 	 *	false: Completion cannot be handled, keep polling
 	 */
-	bool (* process_completion) (void *ctx, struct spdk_nvme_cpl *cpl);
+	bool (* process_completion) (void *ctx, struct nvme_request *req);
 	/*
 	 * process_submission: handle a single qp completion.
 	 * return value:
