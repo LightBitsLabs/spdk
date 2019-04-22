@@ -59,4 +59,12 @@ endif
 endif
 endif
 
+ifeq ($(CONFIG_FC),y)
+C_SRCS += fc.c fc_ls.c
+CFLAGS += -I$(CURDIR)
+ifneq ($(strip $(CONFIG_FC_PATH)),)
+CFLAGS += -I$(CONFIG_FC_PATH)
+endif
+endif
+
 include $(SPDK_ROOT_DIR)/mk/spdk.lib.mk
