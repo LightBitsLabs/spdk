@@ -36,6 +36,9 @@ include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
 DIRS-y += nvme_fuzz
 
+ifeq ($(OS),Linux)
+DIRS-$(CONFIG_VIRTIO) += vhost_fuzz
+endif
 .PHONY: all clean $(DIRS-y)
 
 all: $(DIRS-y)
