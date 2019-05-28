@@ -63,10 +63,12 @@ endif
 
 ifeq ($(CONFIG_IPSEC_MB),y)
 LIB += ipsecbuild
+DPDK_DEPS += ipsecbuild
 endif
 
 ifeq ($(CONFIG_ISAL),y)
 LIB += isalbuild
+DPDK_DEPS += isalbuild
 endif
 
 all: $(DIRS-y)
@@ -81,9 +83,7 @@ uninstall: $(DIRS-y)
 	$(Q)echo "Uninstalled spdk"
 
 ifneq ($(SKIP_DPDK_BUILD),1)
-ifeq ($(CONFIG_ISAL),y)
-dpdkbuild: isalbuild
-endif
+dpdkbuild: $(DPDK_DEPS)
 endif
 
 shared_lib: lib
