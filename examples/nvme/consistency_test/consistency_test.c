@@ -45,14 +45,11 @@
 #include "spdk/crc16.h"
 #include "nvme_internal.h"
 
-#include "hash_table.h"
-
 #if HAVE_LIBAIO
 #include <libaio.h>
 #endif
 
 #define MAX_INFLIGHT_REQ 4096
-#define LBA_TABLE_SIZE 1024
 struct ctrlr_entry {
 	struct spdk_nvme_ctrlr			*ctrlr;
 	struct spdk_nvme_intel_rw_latency_page	*latency_page;
@@ -174,7 +171,6 @@ struct test_ctx {
 	struct worker_msg outbox[QP_DEPTH];
 	struct worker_msg *inbox;
 	struct spdk_nvme_qpair *qpair;
-	struct spdk_hash_table	*lba_table;
 };
 
 struct worker_thread {
@@ -1939,7 +1935,6 @@ process_submission(void *ctx, struct nvme_request *req)
 	//uint16_t cid = req->cmd.cid;
 	//struct test_ctx *test_ctx = (struct test_ctx *)ctx;
 
-	//spdk_hash_table_put_obj(test_ctx->lba_table, (void *)req, (uint64_t)cid);
 	req->user_buffer = req->payload.u.contig + req->payload_offset;
 	return true;
 }
@@ -1996,8 +1991,6 @@ alloc_plugin(struct spdk_nvme_qpair *qpair)
 			0, NULL, spdk_env_get_socket_id(spdk_env_get_current_core()), 0);
 
 	ctx->qpair = qpair;
-	ctx->lba_table = spdk_hash_table_construct(spdk_env_get_socket_id(spdk_env_get_current_core()), LBA_TABLE_SIZE);
-	assert(ctx->lba_table);
 
 	qpair->test_plugin->ctx = (void *)ctx;
 	qpair->test_plugin->process_submission = &process_submission;
