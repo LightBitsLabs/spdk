@@ -77,16 +77,14 @@ TARGET_MACHINE := $(firstword $(TARGET_TRIPLET_WORDS))
 
 COMMON_CFLAGS = -g $(C_OPT) -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -Wmissing-declarations -fno-strict-aliasing -I$(SPDK_ROOT_DIR)/include
 
-ifneq ($(filter powerpc%,$(TARGET_MACHINE)),)
-COMMON_CFLAGS += -mcpu=native
-endif
-ifeq ($(TARGET_MACHINE),x86_64)
-COMMON_CFLAGS += -march=broadwell
-endif
-ifeq ($(TARGET_MACHINE),aarch64)
+
+ifneq ($(filter powerpc% ppc%,$(TARGET_MACHINE)),)
 COMMON_CFLAGS += -mcpu=$(TARGET_ARCHITECTURE)
-COMMON_CFLAGS += -march=armv8-a+crc
+else ifeq ($(TARGET_MACHINE),aarch64)
+COMMON_CFLAGS += -march=$(TARGET_ARCHITECTURE)
 COMMON_CFLAGS += -DPAGE_SIZE=$(shell getconf PAGESIZE)
+else ifeq ('$(TARGET_MACHINE)|$(TARGET_ARCHITECTURE)','riscv64|native')
+# -march=native is not yet supported by GCC on RISC-V. Falling back to default.
 else
 COMMON_CFLAGS += -march=$(TARGET_ARCHITECTURE)
 endif
