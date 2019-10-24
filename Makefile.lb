@@ -25,6 +25,7 @@ install: |checkout_deps
 	$(Q) cp -a lib $(SPDK_INSTALL_DIR)
 	$(Q) cp -a config* $(SPDK_INSTALL_DIR)
 	$(Q) cp -a include $(SPDK_INSTALL_DIR)
+	$(Q) cp -a $(WORKSPACE_TOP)/spdk/mk/config.mk $(SPDK_INSTALL_DIR)
 
 checkin: 
 	$(Q)component-tool checkin --repo=spdk --type=$(BUILD_TYPE) spdk-sdk
