@@ -29,5 +29,4 @@ install: |checkout_deps
 checkin: 
 	$(Q)component-tool checkin --repo=spdk --type=$(BUILD_TYPE) spdk-sdk
 
-
 .PHONY: install checkin 
