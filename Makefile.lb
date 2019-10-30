@@ -26,6 +26,10 @@ install: |checkout_deps
 	$(Q) cp -a config* $(SPDK_INSTALL_DIR)
 	$(Q) cp -a include $(SPDK_INSTALL_DIR)
 
+config_overwrite:
+	./configure --with-dpdk=$(RTE_SDK)
+	$(Q) cp -a mk/config.mk $(SPDK_INSTALL_DIR)/mk/config.mk
+
 checkin: 
 	$(Q)component-tool checkin --repo=spdk --type=$(BUILD_TYPE) spdk-sdk
 
