@@ -36,6 +36,8 @@ include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
 DIRS-y = bdev_raid.c
 
+DIRS-$(CONFIG_RAID5) += raid5.c
+
 .PHONY: all clean $(DIRS-y)
 
 all: $(DIRS-y)
