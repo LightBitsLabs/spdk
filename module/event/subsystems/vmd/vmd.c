@@ -37,6 +37,13 @@
 #include "spdk/vmd.h"
 
 #include "spdk_internal/event.h"
+#include "event_vmd.h"
+
+int
+vmd_subsystem_init(void)
+{
+	return spdk_vmd_init();
+}
 
 static void
 spdk_vmd_subsystem_init(void)
@@ -47,7 +54,7 @@ spdk_vmd_subsystem_init(void)
 	sp = spdk_conf_find_section(NULL, "Vmd");
 	if (sp != NULL) {
 		if (spdk_conf_section_get_boolval(sp, "Enable", false)) {
-			rc = spdk_vmd_init();
+			rc = vmd_subsystem_init();
 		}
 	}
 
