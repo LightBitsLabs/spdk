@@ -36,6 +36,8 @@ include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
 DIRS-y = ioat
 
+DIRS-$(CONFIG_IDXD) += idxd
+
 .PHONY: all clean $(DIRS-y)
 
 all: $(DIRS-y)
