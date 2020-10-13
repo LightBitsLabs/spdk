@@ -30,6 +30,7 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "spdk/nvme_zns.h"
 #include "nvme_internal.h"
 
 const struct spdk_nvme_zns_ns_data *
