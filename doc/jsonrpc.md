@@ -5896,7 +5896,11 @@ Example response:
                 "request_latency": 0,
                 "pending_free_request": 0,
                 "pending_rdma_read": 0,
-                "pending_rdma_write": 0
+                "pending_rdma_write": 0,
+                "total_send_wrs": 0,
+                "send_doorbell_updates": 0,
+                "total_recv_wrs": 0,
+                "recv_doorbell_updates": 1
               },
               {
                 "name": "mlx5_0",
@@ -5906,7 +5910,11 @@ Example response:
                 "request_latency": 1249323766184,
                 "pending_free_request": 0,
                 "pending_rdma_read": 337602,
-                "pending_rdma_write": 0
+                "pending_rdma_write": 0,
+                "total_send_wrs": 15165875,
+                "send_doorbell_updates": 1516587,
+                "total_recv_wrs": 15165875,
+                "recv_doorbell_updates": 1516587
               }
             ]
           }

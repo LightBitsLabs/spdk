@@ -408,6 +408,7 @@ struct spdk_nvmf_rdma_poller_stat {
 	uint64_t				pending_free_request;
 	uint64_t				pending_rdma_read;
 	uint64_t				pending_rdma_write;
+	struct spdk_rdma_qp_stats		qp_stats;
 };
 
 struct spdk_nvmf_rdma_poller {
@@ -997,6 +998,7 @@ nvmf_rdma_qpair_initialize(struct spdk_nvmf_qpair *qpair)
 	qp_init_attr.cap.max_send_wr	= (uint32_t)rqpair->max_queue_depth * 2;
 	qp_init_attr.cap.max_send_sge	= spdk_min((uint32_t)device->attr.max_sge, NVMF_DEFAULT_TX_SGE);
 	qp_init_attr.cap.max_recv_sge	= spdk_min((uint32_t)device->attr.max_sge, NVMF_DEFAULT_RX_SGE);
+	qp_init_attr.stats		= &rqpair->poller->stat.qp_stats;
 
 	if (rqpair->srq == NULL && nvmf_rdma_resize_cq(rqpair, device) < 0) {
 		SPDK_ERRLOG("Failed to resize the completion queue. Cannot initialize qpair.\n");
@@ -3249,10 +3251,12 @@ nvmf_rdma_poll_group_create(struct spdk_nvmf_transport *transport)
 			poller->max_srq_depth = rtransport->rdma_opts.max_srq_depth;
 
 			device->num_srq++;
-			memset(&srq_init_attr, 0, sizeof(struct ibv_srq_init_attr));
-			srq_init_attr.attr.max_wr = poller->max_srq_depth;
-			srq_init_attr.attr.max_sge = spdk_min(device->attr.max_sge, NVMF_DEFAULT_RX_SGE);
-			poller->srq = ibv_create_srq(device->pd, &srq_init_attr);
+			memset(&srq_init_attr, 0, sizeof(srq_init_attr));
+			srq_init_attr.pd = device->pd;
+			srq_init_attr.stats = &poller->stat.qp_stats.recv;
+			srq_init_attr.srq_init_attr.attr.max_wr = poller->max_srq_depth;
+			srq_init_attr.srq_init_attr.attr.max_sge = spdk_min(device->attr.max_sge, NVMF_DEFAULT_RX_SGE);
+			poller->srq = spdk_rdma_srq_create(&srq_init_attr);
 			if (!poller->srq) {
 				SPDK_ERRLOG("Unable to create shared receive queue, errno %d\n", errno);
 				nvmf_rdma_poll_group_destroy(&rgroup->group);
@@ -4199,6 +4203,10 @@ nvmf_rdma_poll_group_get_stat(struct spdk_nvmf_tgt *tgt,
 				device_stat->pending_free_request = rpoller->stat.pending_free_request;
 				device_stat->pending_rdma_read = rpoller->stat.pending_rdma_read;
 				device_stat->pending_rdma_write = rpoller->stat.pending_rdma_write;
+				device_stat->total_send_wrs = rpoller->stat.qp_stats.send.num_submitted_wrs;
+				device_stat->send_doorbell_updates = rpoller->stat.qp_stats.send.doorbell_updates;
+				device_stat->total_recv_wrs = rpoller->stat.qp_stats.recv.num_submitted_wrs;
+				device_stat->recv_doorbell_updates = rpoller->stat.qp_stats.recv.doorbell_updates;
 			}
 			return 0;
 		}
