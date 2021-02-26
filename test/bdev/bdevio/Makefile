@@ -39,7 +39,7 @@ APP = bdevio
 
 C_SRCS := bdevio.c
 
-SPDK_LIB_LIST = $(ALL_MODULES_LIST) event_bdev
+SPDK_LIB_LIST = $(ALL_MODULES_LIST) event event_bdev
 
 LIBS += -lcunit
 
