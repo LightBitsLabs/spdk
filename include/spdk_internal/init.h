@@ -30,13 +30,8 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * \file
- * SPDK Initialization Helper
- */
-
-#ifndef SPDK_INIT_H
-#define SPDK_INIT_H
+#ifndef SPDK_INIT_INTERNAL_H
+#define SPDK_INIT_INTERNAL_H
 
 #include "spdk/stdinc.h"
 #include "spdk/queue.h"
@@ -67,11 +62,6 @@ struct spdk_subsystem_depend {
 void spdk_add_subsystem(struct spdk_subsystem *subsystem);
 void spdk_add_subsystem_depend(struct spdk_subsystem_depend *depend);
 
-typedef void (*spdk_subsystem_init_fn)(int rc, void *ctx);
-void spdk_subsystem_init(spdk_subsystem_init_fn cb_fn, void *cb_arg);
-
-typedef void (*spdk_subsystem_fini_fn)(void *ctx);
-void spdk_subsystem_fini(spdk_subsystem_fini_fn cb_fn, void *cb_arg);
 void spdk_subsystem_init_next(int rc);
 void spdk_subsystem_fini_next(void);
 
