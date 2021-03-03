@@ -45,7 +45,32 @@ which is the same as the type for defined transports and more informative for a 
 
 ### opal
 
-Fixed the bug that no media event is pushed to the target bdev.
+Removed the `spdk_opal_supported` API.
+
+### raid
+
+For `bdev_raid_create` RPC, the deprecated parameter `strip_size` was removed.
+
+### rpc
+
+New RPC `bdev_nvme_get_transport_statistics` was added, it allows to get transport statistics
+of nvme poll groups.
+
+Parameter `enable-zerocopy-send` of RPC `sock_impl_set_options` is deprecated and will be removed in SPDK 21.07,
+use `enable-zerocopy-send-server` or `enable-zerocopy-send-client` instead.
+Parameter `disable-zerocopy-send` of RPC `sock_impl_set_options` is deprecated and will be removed in SPDK 21.07,
+use `disable-zerocopy-send-server` or `disable-zerocopy-send-client` instead.
+
+Added cmd_parser.py used to parse the args from argparse. There are
+two benefit to use command parser:
+- Simplify the definition of rpc method. It will reduce the rpc method code.
+- Make the rpc call more versatile. User can add private args into rpc method.
+
+### rpm
+
+Added support for new RPM spec, rpmbuild/spdk.spec, which can be used for packaging the
+SPDK. The pkg/spdk.spec is considered to be deprecated and scheduled for removal in SPDK 21.07.
+See [RPM documentation](https://spdk.io/doc/rpm.html) for more details.
 
 ### sock
 
