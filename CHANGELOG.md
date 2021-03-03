@@ -25,7 +25,25 @@ Fixed kernel hang when bdev is removed by always setting NBD_SET_TIMEOUT.
 
 Fixed segfault when removing qpair when transport connection fails (issue #1777).
 
-### ocssd
+Added new APIs:
+- `spdk_nvmf_poll_group_dump_stat` (function in `nvmf.h`).
+- `poll_group_dump_stat` (transport op in `nvmf_transport.h`).
+
+The following APIs have been deprecated and will be removed in a future release:
+- `spdk_nvmf_poll_group_get_stat` (function in `nvmf.h`),
+- `spdk_nvmf_transport_poll_group_get_stat` (function in `nvmf.h`),
+- `spdk_nvmf_transport_poll_group_free_stat`(function in `nvmf.h`),
+- `spdk_nvmf_rdma_device_stat ` (struct in `nvmf.h`),
+- `spdk_nvmf_transport_poll_group_stat` (struct in `nvmf.h`),
+- `poll_group_get_stat` (transport op in `nvmf_transport.h`),
+- `poll_group_free_stat` (transport op in `nvmf_transport.h`).
+
+See header files for details.
+
+The `trtype` field in JSON returned by `nvmf_get_stats` RPC contains now the name of the transport,
+which is the same as the type for defined transports and more informative for a custom transport.
+
+### opal
 
 Fixed the bug that no media event is pushed to the target bdev.
 
