@@ -38,6 +38,9 @@ SO_VER := 5
 SO_MINOR := 0
 
 C_SRCS = idxd.c idxd_user.c
+ifeq ($(CONFIG_IDXD_KERNEL),y)
+C_SRCS += idxd_kernel.c
+endif
 
 LIBNAME = idxd
 
