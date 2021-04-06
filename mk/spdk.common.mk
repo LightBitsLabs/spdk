@@ -250,7 +250,7 @@ COMMON_CFLAGS += -DSPDK_GIT_COMMIT=$(SPDK_GIT_COMMIT)
 endif
 
 COMMON_CFLAGS += -pthread
-LDFLAGS += -pthread
+SYS_LIBS += -pthread
 
 CFLAGS   += $(COMMON_CFLAGS) -Wno-pointer-sign -Wstrict-prototypes -Wold-style-definition -std=gnu99
 CXXFLAGS += $(COMMON_CFLAGS)
