@@ -34,7 +34,7 @@
 SPDK_ROOT_DIR := $(abspath $(CURDIR)/../../../..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
-DIRS-y = idxd.c
+DIRS-y = idxd.c idxd_user.c
 
 .PHONY: all clean $(DIRS-y)
 
