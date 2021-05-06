@@ -34,7 +34,7 @@
 SPDK_ROOT_DIR := $(abspath $(CURDIR)/..)
 include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
 
-DIRS-y += accel bdev blob ioat nvme sock vmd nvmf
+DIRS-y += accel bdev blob ioat nvme sock vmd nvmf util
 
 ifeq ($(OS),Linux)
 DIRS-$(CONFIG_VHOST) += interrupt_tgt
