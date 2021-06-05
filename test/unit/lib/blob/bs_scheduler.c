@@ -31,6 +31,8 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "spdk/thread.h"
+
 bool g_scheduler_delay = false;
 
 struct scheduled_ops {
