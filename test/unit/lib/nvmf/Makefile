@@ -40,6 +40,8 @@ DIRS-$(CONFIG_RDMA) += rdma.c
 
 DIRS-$(CONFIG_FC) += fc.c fc_ls.c
 
+DIRS-$(CONFIG_VFIO_USER) += vfio_user.c
+
 .PHONY: all clean $(DIRS-y)
 
 all: $(DIRS-y)
