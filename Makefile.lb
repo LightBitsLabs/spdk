@@ -2,6 +2,7 @@ include $(WORKSPACE_TOP)/common/Makefile.env
 
 RTE_SDK:=$(shell component-tool localpath --repo=dpdk --type=$(BUILD_TYPE) dpdk-sdk)
 SPDK_INSTALL_DIR ?= $(shell component-tool localpath --repo=spdk --type=$(BUILD_TYPE) spdk-sdk)
+TAR_NAME ?= $(notdir $(SPDK_INSTALL_DIR)).tar.gz
 
 MACHINE_CFLAGS := "-march=broadwell"
 
@@ -26,6 +27,8 @@ install: |checkout_deps
 	$(Q) cp -a lib $(SPDK_INSTALL_DIR)
 	$(Q) cp -a config* $(SPDK_INSTALL_DIR)
 	$(Q) cp -a include $(SPDK_INSTALL_DIR)
+	$(Q) cp -a scripts $(SPDK_INSTALL_DIR)
+	$(Q) cd $(SPDK_INSTALL_DIR) && tar czf ../$(TAR_NAME) * && mv -f ../$(TAR_NAME) $(SPDK_INSTALL_DIR)/
 
 checkin: 
 	$(Q)component-tool checkin --repo=spdk --type=$(BUILD_TYPE) spdk-sdk
