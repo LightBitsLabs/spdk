@@ -10,12 +10,13 @@ all: build
 checkout_deps:
 	 $(Q)lb-build -d
 
-build: checkout_deps 
-	./configure --with-dpdk=$(RTE_SDK)
-	$(Q)$(MAKE) MACHINE_CFLAGS=$(MACHINE_CFLAGS) CONFIG_DPDK_DIR=$(RTE_SDK)
+build: checkout_deps
+	git submodule update --init
+	./configure
+	$(MAKE)
 
 clean: checkout_deps 
-	$(Q)$(MAKE) CONFIG_DPDK_DIR=$(RTE_SDK) clean
+	$(Q)$(MAKE) clean
 
 install: |checkout_deps
 	$(Q) mkdir -p $(SPDK_INSTALL_DIR)
