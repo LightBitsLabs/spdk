@@ -6,6 +6,10 @@ TAR_NAME ?= $(notdir $(SPDK_INSTALL_DIR)).tar.gz
 
 MACHINE_CFLAGS := "-march=broadwell"
 
+ifeq ($(BUILD_TYPE),dev)
+   SPDK_CONFIG ?= "--enable-debug"
+endif
+
 all: build
 
 checkout_deps:
@@ -13,7 +17,7 @@ checkout_deps:
 
 build: checkout_deps
 	git submodule update --init
-	./configure
+	./configure $(SPDK_CONFIG)
 	$(MAKE)
 
 clean: checkout_deps 
