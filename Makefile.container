@@ -1,0 +1,9 @@
+include $(WORKSPACE_TOP)/lb_containers/Makefile.container
+
+
+TARGETS := all build checkout_deps clean install checkin
+
+$(TARGETS): dpdk_container
+	${Q}run_in_container -i lbdpdk:${LBDPDK_CONTAINER_VERSION} -- ${MAKE} -f Makefile.lb $@
+
+.PHONY:	$(TARGETS)
